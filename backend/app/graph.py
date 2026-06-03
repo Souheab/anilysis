@@ -1,0 +1,348 @@
+from __future__ import annotations
+
+from collections import defaultdict, deque
+from typing import Any
+
+from fastapi import HTTPException
+import networkx as nx
+from sqlmodel import Session, select
+
+from app.cache import anime_to_detail, included_staff_roles
+from app.models import Anime, AnimeStaffRole, AnimeStudio, Staff, Studio
+from app.schemas import (
+    AnimeSearchResult,
+    CompareResponse,
+    CytoscapeElement,
+    GraphResponse,
+    NodeDetail,
+    PathNode,
+    ScoreBreakdown,
+    SharedStaff,
+    SharedStudio,
+)
+from app.scoring import normalize_role_filters, path_bonus, popularity_multiplier, role_is_included
+
+
+class GraphService:
+    def compare(self, session: Session, source_id: int, target_id: int, role_filters: list[str] | None) -> CompareResponse:
+        source = self._get_anime(session, source_id)
+        target = self._get_anime(session, target_id)
+        shared_staff = self._shared_staff(session, source_id, target_id, role_filters)
+        shared_studios = self._shared_studios(session, source_id, target_id, role_filters)
+        graph = self._build_graph(session, role_filters)
+        path = self._shortest_path(graph, f"anime:{source_id}", f"anime:{target_id}")
+        breakdown = self._score_breakdown(shared_staff, shared_studios, len(path))
+        score = min(100.0, sum(breakdown.model_dump().values()))
+        return CompareResponse(
+            sourceAnime=anime_to_detail(source),
+            targetAnime=anime_to_detail(target),
+            sharedStaff=shared_staff,
+            sharedStudios=shared_studios,
+            score=round(score, 2),
+            scoreBreakdown=breakdown,
+            shortestPath=[self._path_node(graph, node_id) for node_id in path],
+        )
+
+    def cytoscape_graph(
+        self,
+        session: Session,
+        source_id: int,
+        target_id: int,
+        role_filters: list[str] | None,
+        max_depth: int,
+    ) -> GraphResponse:
+        graph = self._build_graph(session, role_filters)
+        source_node = f"anime:{source_id}"
+        target_node = f"anime:{target_id}"
+        if source_node not in graph or target_node not in graph:
+            return GraphResponse(nodes=[], edges=[], highlightedPath=[])
+
+        shortest_path = self._shortest_path(graph, source_node, target_node)
+        visible_nodes = set(shortest_path) | {source_node, target_node}
+        visible_nodes |= self._bounded_neighbors(graph, source_node, max_depth)
+        visible_nodes |= self._bounded_neighbors(graph, target_node, max_depth)
+
+        if len(visible_nodes) > 140:
+            required = set(shortest_path) | {source_node, target_node}
+            ranked = sorted(
+                (node for node in visible_nodes if node not in required),
+                key=lambda node: graph.degree(node),
+                reverse=True,
+            )
+            visible_nodes = required | set(ranked[: 140 - len(required)])
+
+        highlighted_nodes = set(shortest_path)
+        highlighted_edges = {
+            self._edge_id(shortest_path[index], shortest_path[index + 1])
+            for index in range(len(shortest_path) - 1)
+        }
+
+        nodes = [
+            CytoscapeElement(data=self._cy_node(graph, node_id), classes="highlighted" if node_id in highlighted_nodes else "")
+            for node_id in sorted(visible_nodes)
+        ]
+        edges: list[CytoscapeElement] = []
+        for source, target, data in graph.edges(data=True):
+            if source not in visible_nodes or target not in visible_nodes:
+                continue
+            edge_id = data["id"]
+            edges.append(
+                CytoscapeElement(
+                    data={**data, "source": source, "target": target},
+                    classes="highlighted" if edge_id in highlighted_edges else "",
+                )
+            )
+        return GraphResponse(nodes=nodes, edges=edges, highlightedPath=shortest_path)
+
+    def node_detail(self, session: Session, node_type: str, node_id: int) -> NodeDetail:
+        if node_type == "anime":
+            anime = self._get_anime(session, node_id)
+            return NodeDetail(
+                id=anime.id,
+                type="anime",
+                label=anime.title_english or anime.title_romaji,
+                imageUrl=anime.cover_image_url,
+                siteUrl=anime.site_url,
+                metadata=anime_to_detail(anime).model_dump(mode="json"),
+            )
+        if node_type == "staff":
+            staff = session.get(Staff, node_id)
+            if not staff:
+                raise HTTPException(status_code=404, detail=f"Staff {node_id} is not cached")
+            related = self._anime_for_staff(session, node_id)
+            return NodeDetail(
+                id=staff.id,
+                type="staff",
+                label=staff.name_full,
+                imageUrl=staff.image_url,
+                siteUrl=staff.site_url,
+                metadata={"nameNative": staff.name_native, "favourites": staff.favourites},
+                relatedAnime=related,
+            )
+        if node_type == "studio":
+            studio = session.get(Studio, node_id)
+            if not studio:
+                raise HTTPException(status_code=404, detail=f"Studio {node_id} is not cached")
+            related = self._anime_for_studio(session, node_id)
+            return NodeDetail(
+                id=studio.id,
+                type="studio",
+                label=studio.name,
+                siteUrl=studio.site_url,
+                metadata={"favourites": studio.favourites},
+                relatedAnime=related,
+            )
+        raise HTTPException(status_code=400, detail="Node type must be anime, staff, or studio")
+
+    def _build_graph(self, session: Session, role_filters: list[str] | None) -> nx.Graph:
+        graph = nx.Graph()
+        for anime in session.exec(select(Anime)).all():
+            graph.add_node(
+                f"anime:{anime.id}",
+                type="anime",
+                label=anime.title_english or anime.title_romaji,
+                imageUrl=anime.cover_image_url,
+                year=anime.year,
+            )
+        for staff in session.exec(select(Staff)).all():
+            graph.add_node(
+                f"staff:{staff.id}",
+                type="staff",
+                label=staff.name_full,
+                imageUrl=staff.image_url,
+                favourites=staff.favourites,
+            )
+        for studio in session.exec(select(Studio)).all():
+            graph.add_node(f"studio:{studio.id}", type="studio", label=studio.name)
+
+        for rel in session.exec(select(AnimeStaffRole)).all():
+            if not role_is_included(rel.role_category, rel.role, role_filters):
+                continue
+            anime_node = f"anime:{rel.anime_id}"
+            staff_node = f"staff:{rel.staff_id}"
+            if anime_node not in graph or staff_node not in graph:
+                continue
+            edge_id = self._edge_id(anime_node, staff_node)
+            distance = max(0.2, 6.0 - rel.weight)
+            if graph.has_edge(anime_node, staff_node):
+                edge = graph.edges[anime_node, staff_node]
+                edge["label"] = f"{edge['label']}, {rel.role}"
+                edge["roles"].append(rel.role)
+                edge["weight"] = max(edge["weight"], rel.weight)
+                edge["distance"] = min(edge["distance"], distance)
+            else:
+                graph.add_edge(
+                    anime_node,
+                    staff_node,
+                    id=edge_id,
+                    label=rel.role,
+                    type="staff",
+                    roles=[rel.role],
+                    roleCategories=[rel.role_category],
+                    weight=rel.weight,
+                    distance=distance,
+                )
+        normalized_filters = normalize_role_filters(role_filters)
+        for rel in session.exec(select(AnimeStudio)).all():
+            if normalized_filters and "studio" not in normalized_filters:
+                continue
+            anime_node = f"anime:{rel.anime_id}"
+            studio_node = f"studio:{rel.studio_id}"
+            if anime_node not in graph or studio_node not in graph:
+                continue
+            label = "Main studio" if rel.is_main else "Studio"
+            graph.add_edge(
+                anime_node,
+                studio_node,
+                id=self._edge_id(anime_node, studio_node),
+                label=label,
+                type="studio",
+                roles=[label],
+                roleCategories=["studio"],
+                weight=rel.weight,
+                distance=max(0.3, 5.5 - rel.weight),
+            )
+        return graph
+
+    def _shared_staff(
+        self,
+        session: Session,
+        source_id: int,
+        target_id: int,
+        role_filters: list[str] | None,
+    ) -> list[SharedStaff]:
+        source_roles = self._roles_by_staff(included_staff_roles(session, source_id, role_filters))
+        target_roles = self._roles_by_staff(included_staff_roles(session, target_id, role_filters))
+        shared_ids = set(source_roles) & set(target_roles)
+        staff_by_id = {staff.id: staff for staff in session.exec(select(Staff).where(Staff.id.in_(shared_ids))).all()} if shared_ids else {}
+        results: list[SharedStaff] = []
+        for staff_id in shared_ids:
+            staff = staff_by_id[staff_id]
+            all_roles = source_roles[staff_id] + target_roles[staff_id]
+            categories = sorted({role.role_category for role in all_roles})
+            weight = max(role.weight for role in all_roles) * popularity_multiplier(staff.favourites)
+            results.append(
+                SharedStaff(
+                    staffId=staff_id,
+                    name=staff.name_full,
+                    imageUrl=staff.image_url,
+                    favourites=staff.favourites,
+                    sourceRoles=sorted({role.role for role in source_roles[staff_id]}),
+                    targetRoles=sorted({role.role for role in target_roles[staff_id]}),
+                    roleCategories=categories,
+                    weight=round(weight, 2),
+                )
+            )
+        return sorted(results, key=lambda item: item.weight, reverse=True)
+
+    def _shared_studios(
+        self,
+        session: Session,
+        source_id: int,
+        target_id: int,
+        role_filters: list[str] | None,
+    ) -> list[SharedStudio]:
+        normalized_filters = normalize_role_filters(role_filters)
+        if normalized_filters and "studio" not in normalized_filters:
+            return []
+        source = {rel.studio_id: rel for rel in session.exec(select(AnimeStudio).where(AnimeStudio.anime_id == source_id)).all()}
+        target = {rel.studio_id: rel for rel in session.exec(select(AnimeStudio).where(AnimeStudio.anime_id == target_id)).all()}
+        shared_ids = set(source) & set(target)
+        studios = {studio.id: studio for studio in session.exec(select(Studio).where(Studio.id.in_(shared_ids))).all()} if shared_ids else {}
+        results = [
+            SharedStudio(
+                studioId=studio_id,
+                name=studios[studio_id].name,
+                sourceIsMain=source[studio_id].is_main,
+                targetIsMain=target[studio_id].is_main,
+                weight=round(source[studio_id].weight + target[studio_id].weight, 2),
+            )
+            for studio_id in shared_ids
+        ]
+        return sorted(results, key=lambda item: item.weight, reverse=True)
+
+    def _roles_by_staff(self, roles: list[AnimeStaffRole]) -> dict[int, list[AnimeStaffRole]]:
+        grouped: dict[int, list[AnimeStaffRole]] = defaultdict(list)
+        for role in roles:
+            grouped[role.staff_id].append(role)
+        return grouped
+
+    def _score_breakdown(
+        self,
+        shared_staff: list[SharedStaff],
+        shared_studios: list[SharedStudio],
+        path_length: int,
+    ) -> ScoreBreakdown:
+        staff_points = sum(item.weight * 5 for item in shared_staff)
+        studio_points = sum(item.weight * 4 for item in shared_studios)
+        popularity_points = sum(min(item.favourites or 0, 30_000) / 5_000 for item in shared_staff)
+        return ScoreBreakdown(
+            sharedStaff=round(staff_points, 2),
+            sharedStudios=round(studio_points, 2),
+            popularityBonus=round(popularity_points, 2),
+            pathBonus=round(path_bonus(path_length), 2),
+        )
+
+    def _shortest_path(self, graph: nx.Graph, source: str, target: str) -> list[str]:
+        try:
+            return nx.shortest_path(graph, source=source, target=target, weight="distance")
+        except (nx.NetworkXNoPath, nx.NodeNotFound):
+            return []
+
+    def _bounded_neighbors(self, graph: nx.Graph, start: str, max_depth: int) -> set[str]:
+        visited = {start}
+        queue = deque([(start, 0)])
+        while queue:
+            node, depth = queue.popleft()
+            if depth >= max(1, max_depth):
+                continue
+            neighbors = sorted(graph.neighbors(node), key=lambda item: graph.edges[node, item].get("weight", 0), reverse=True)
+            for neighbor in neighbors[:60]:
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append((neighbor, depth + 1))
+        return visited
+
+    def _cy_node(self, graph: nx.Graph, node_id: str) -> dict[str, Any]:
+        data = dict(graph.nodes[node_id])
+        data["id"] = node_id
+        return data
+
+    def _path_node(self, graph: nx.Graph, node_id: str) -> PathNode:
+        data = graph.nodes[node_id]
+        return PathNode(id=node_id, type=data["type"], label=data["label"])
+
+    def _edge_id(self, source: str, target: str) -> str:
+        first, second = sorted([source, target])
+        return f"{first}--{second}"
+
+    def _get_anime(self, session: Session, anime_id: int) -> Anime:
+        anime = session.get(Anime, anime_id)
+        if not anime:
+            raise HTTPException(status_code=404, detail=f"Anime {anime_id} is not cached")
+        return anime
+
+    def _anime_for_staff(self, session: Session, staff_id: int) -> list[AnimeSearchResult]:
+        anime_ids = [rel.anime_id for rel in session.exec(select(AnimeStaffRole).where(AnimeStaffRole.staff_id == staff_id)).all()]
+        return self._anime_results(session, anime_ids)
+
+    def _anime_for_studio(self, session: Session, studio_id: int) -> list[AnimeSearchResult]:
+        anime_ids = [rel.anime_id for rel in session.exec(select(AnimeStudio).where(AnimeStudio.studio_id == studio_id)).all()]
+        return self._anime_results(session, anime_ids)
+
+    def _anime_results(self, session: Session, anime_ids: list[int]) -> list[AnimeSearchResult]:
+        if not anime_ids:
+            return []
+        anime = session.exec(select(Anime).where(Anime.id.in_(anime_ids))).all()
+        return [
+            AnimeSearchResult(
+                id=item.id,
+                titleRomaji=item.title_romaji,
+                titleEnglish=item.title_english,
+                titleNative=item.title_native,
+                coverImageUrl=item.cover_image_url,
+                year=item.year,
+                format=item.format,
+            )
+            for item in anime
+        ]

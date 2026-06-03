@@ -3,4 +3,7 @@ uvicorn
 sqlmodel
 sqlalchemy
 networkx
-pandas
+httpx
+pytest
+pytest-asyncio
+pytest-httpx
