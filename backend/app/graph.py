@@ -27,12 +27,21 @@ from app.scoring import normalize_role_filters, path_bonus, popularity_multiplie
 
 
 class GraphService:
-    def compare(self, session: Session, source_id: int, target_id: int, role_filters: list[str] | None) -> CompareResponse:
+    def compare(
+        self,
+        session: Session,
+        source_id: int,
+        target_id: int,
+        role_filters: list[str] | None,
+        staff_min_favourites: int = 100,
+        staff_limit: int | None = 20,
+    ) -> CompareResponse:
         source = self._get_anime(session, source_id)
         target = self._get_anime(session, target_id)
-        shared_staff = self._shared_staff(session, source_id, target_id, role_filters)
+        allowed_staff_ids = self._allowed_staff_ids(session, staff_min_favourites, staff_limit)
+        shared_staff = self._shared_staff(session, source_id, target_id, role_filters, allowed_staff_ids)
         shared_studios = self._shared_studios(session, source_id, target_id, role_filters)
-        graph = self._build_graph(session, role_filters)
+        graph = self._build_graph(session, role_filters, allowed_staff_ids)
         path = self._shortest_path(graph, f"anime:{source_id}", f"anime:{target_id}")
         breakdown = self._score_breakdown(shared_staff, shared_studios, len(path))
         score = min(100.0, sum(breakdown.model_dump().values()))
@@ -53,8 +62,11 @@ class GraphService:
         target_id: int,
         role_filters: list[str] | None,
         max_depth: int,
+        staff_min_favourites: int = 100,
+        staff_limit: int | None = 20,
     ) -> GraphResponse:
-        graph = self._build_graph(session, role_filters)
+        allowed_staff_ids = self._allowed_staff_ids(session, staff_min_favourites, staff_limit)
+        graph = self._build_graph(session, role_filters, allowed_staff_ids)
         source_node = f"anime:{source_id}"
         target_node = f"anime:{target_id}"
         if source_node not in graph or target_node not in graph:
@@ -164,7 +176,12 @@ class GraphService:
             )
         raise HTTPException(status_code=400, detail="Node type must be anime, staff, or studio")
 
-    def _build_graph(self, session: Session, role_filters: list[str] | None) -> nx.Graph:
+    def _build_graph(
+        self,
+        session: Session,
+        role_filters: list[str] | None,
+        allowed_staff_ids: set[int] | None = None,
+    ) -> nx.Graph:
         graph = nx.Graph()
         for anime in session.exec(select(Anime)).all():
             graph.add_node(
@@ -175,6 +192,8 @@ class GraphService:
                 year=anime.year,
             )
         for staff in session.exec(select(Staff)).all():
+            if allowed_staff_ids is not None and staff.id not in allowed_staff_ids:
+                continue
             graph.add_node(
                 f"staff:{staff.id}",
                 type="staff",
@@ -187,6 +206,8 @@ class GraphService:
 
         for rel in session.exec(select(AnimeStaffRole)).all():
             if not role_is_included(rel.role_category, rel.role, role_filters):
+                continue
+            if allowed_staff_ids is not None and rel.staff_id not in allowed_staff_ids:
                 continue
             anime_node = f"anime:{rel.anime_id}"
             staff_node = f"staff:{rel.staff_id}"
@@ -240,10 +261,13 @@ class GraphService:
         source_id: int,
         target_id: int,
         role_filters: list[str] | None,
+        allowed_staff_ids: set[int] | None = None,
     ) -> list[SharedStaff]:
         source_roles = self._roles_by_staff(included_staff_roles(session, source_id, role_filters))
         target_roles = self._roles_by_staff(included_staff_roles(session, target_id, role_filters))
         shared_ids = set(source_roles) & set(target_roles)
+        if allowed_staff_ids is not None:
+            shared_ids &= allowed_staff_ids
         staff_by_id = {staff.id: staff for staff in session.exec(select(Staff).where(Staff.id.in_(shared_ids))).all()} if shared_ids else {}
         results: list[SharedStaff] = []
         for staff_id in shared_ids:
@@ -264,6 +288,17 @@ class GraphService:
                 )
             )
         return sorted(results, key=lambda item: item.weight, reverse=True)
+
+    def _allowed_staff_ids(self, session: Session, min_favourites: int, limit: int | None) -> set[int] | None:
+        staff = sorted(
+            session.exec(select(Staff)).all(),
+            key=lambda item: (item.favourites or 0, item.name_full),
+            reverse=True,
+        )
+        filtered = [item for item in staff if (item.favourites or 0) >= max(0, min_favourites)]
+        if limit is not None:
+            filtered = filtered[:limit]
+        return {item.id for item in filtered}
 
     def _shared_studios(
         self,

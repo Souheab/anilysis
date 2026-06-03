@@ -22,6 +22,7 @@ import {
 import './App.css'
 import {
   compareAnime,
+  DEFAULT_STAFF_POPULARITY_FILTERS,
   fetchGraph,
   fetchNodeDetail,
   searchAnime,
@@ -45,6 +46,13 @@ const ROLE_FILTERS = [
 ]
 
 const ALL_ROLE_IDS = ROLE_FILTERS.map((filter) => filter.id)
+const STAFF_LIMIT_OPTIONS = [
+  { label: 'Top 10', value: 10 },
+  { label: 'Top 20', value: 20 },
+  { label: 'Top 40', value: 40 },
+  { label: 'Top 80', value: 80 },
+  { label: 'All staff', value: null },
+]
 
 function titleFor(anime: AnimeSearchResult) {
   return anime.titleEnglish || anime.titleRomaji
@@ -79,6 +87,8 @@ function App() {
   const [targetAnime, setTargetAnime] = useState<AnimeSearchResult | null>(null)
   const [activeSlot, setActiveSlot] = useState<1 | 2>(1)
   const [activeFilters, setActiveFilters] = useState(() => ALL_ROLE_IDS)
+  const [staffMinFavourites, setStaffMinFavourites] = useState(DEFAULT_STAFF_POPULARITY_FILTERS.staffMinFavourites)
+  const [staffLimit, setStaffLimit] = useState<number | null>(DEFAULT_STAFF_POPULARITY_FILTERS.staffLimit)
   const [comparison, setComparison] = useState<CompareResponse | null>(null)
   const [graph, setGraph] = useState<GraphResponse | null>(null)
   const [nodeDetail, setNodeDetail] = useState<NodeDetail | null>(null)
@@ -88,6 +98,7 @@ function App() {
   const [error, setError] = useState<string | null>(null)
 
   const apiFilters = useMemo(() => filtersForApi(activeFilters), [activeFilters])
+  const popularityFilters = useMemo(() => ({ staffMinFavourites, staffLimit }), [staffLimit, staffMinFavourites])
   const canCompare = Boolean(sourceAnime && targetAnime && sourceAnime.id !== targetAnime.id)
   const duplicateSelection = Boolean(sourceAnime && targetAnime && sourceAnime.id === targetAnime.id)
 
@@ -107,8 +118,8 @@ function App() {
       }
     })
     void Promise.all([
-      compareAnime(sourceAnime.id, targetAnime.id, apiFilters),
-      fetchGraph(sourceAnime.id, targetAnime.id, apiFilters, 2),
+      compareAnime(sourceAnime.id, targetAnime.id, apiFilters, popularityFilters),
+      fetchGraph(sourceAnime.id, targetAnime.id, apiFilters, 2, popularityFilters),
     ])
       .then(([nextComparison, nextGraph]) => {
         if (cancelled) return
@@ -130,7 +141,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [apiFilters, sourceAnime, targetAnime])
+  }, [apiFilters, popularityFilters, sourceAnime, targetAnime])
 
   const clearComparisonState = useCallback(() => {
     setComparison(null)
@@ -178,6 +189,12 @@ function App() {
       }
       return [...current, filterId]
     })
+  }
+
+  const resetFilters = () => {
+    setActiveFilters(ALL_ROLE_IDS)
+    setStaffMinFavourites(DEFAULT_STAFF_POPULARITY_FILTERS.staffMinFavourites)
+    setStaffLimit(DEFAULT_STAFF_POPULARITY_FILTERS.staffLimit)
   }
 
   const selectNode = useCallback(async (nodeId: string) => {
@@ -255,8 +272,12 @@ function App() {
           <RoleFilters
             activeFilters={activeFilters}
             comparison={comparison}
+            staffMinFavourites={staffMinFavourites}
+            staffLimit={staffLimit}
             onToggle={toggleFilter}
-            onReset={() => setActiveFilters(ALL_ROLE_IDS)}
+            onMinFavouritesChange={setStaffMinFavourites}
+            onStaffLimitChange={setStaffLimit}
+            onReset={resetFilters}
           />
         </aside>
       </div>
@@ -605,12 +626,20 @@ function NodeTypeIcon({ type }: { type: NodeDetail['type'] }) {
 function RoleFilters({
   activeFilters,
   comparison,
+  staffMinFavourites,
+  staffLimit,
   onToggle,
+  onMinFavouritesChange,
+  onStaffLimitChange,
   onReset,
 }: {
   activeFilters: string[]
   comparison: CompareResponse | null
+  staffMinFavourites: number
+  staffLimit: number | null
   onToggle: (id: string) => void
+  onMinFavouritesChange: (value: number) => void
+  onStaffLimitChange: (value: number | null) => void
   onReset: () => void
 }) {
   const counts = useMemo(() => {
@@ -645,6 +674,34 @@ function RoleFilters({
             </button>
           )
         })}
+      </div>
+      <div className="popularity-controls">
+        <div className="popularity-control">
+          <label htmlFor="staff-min-favourites">Minimum favourites</label>
+          <div className="number-input">
+            <Flame size={15} />
+            <input
+              id="staff-min-favourites"
+              type="number"
+              min={0}
+              step={100}
+              value={staffMinFavourites}
+              onChange={(event) => onMinFavouritesChange(Math.max(0, Number(event.target.value) || 0))}
+            />
+          </div>
+        </div>
+        <div className="popularity-control">
+          <label htmlFor="staff-limit">Staff shown</label>
+          <select
+            id="staff-limit"
+            value={staffLimit ?? 'all'}
+            onChange={(event) => onStaffLimitChange(event.target.value === 'all' ? null : Number(event.target.value))}
+          >
+            {STAFF_LIMIT_OPTIONS.map((option) => (
+              <option key={option.label} value={option.value ?? 'all'}>{option.label}</option>
+            ))}
+          </select>
+        </div>
       </div>
     </section>
   )

@@ -64,6 +64,16 @@ export interface CompareResponse {
   shortestPath: PathNode[]
 }
 
+export interface StaffPopularityFilters {
+  staffMinFavourites: number
+  staffLimit: number | null
+}
+
+export const DEFAULT_STAFF_POPULARITY_FILTERS: StaffPopularityFilters = {
+  staffMinFavourites: 100,
+  staffLimit: 20,
+}
+
 export interface CytoscapeElement {
   data: Record<string, unknown>
   classes: string
@@ -130,17 +140,28 @@ export function searchAnime(query: string, signal?: AbortSignal) {
   return request<AnimeSearchResult[]>(`/api/search/anime?q=${encodeURIComponent(query)}`, { signal })
 }
 
-export function compareAnime(sourceAnimeId: number, targetAnimeId: number, roleFilters: string[]) {
+export function compareAnime(
+  sourceAnimeId: number,
+  targetAnimeId: number,
+  roleFilters: string[],
+  popularityFilters: StaffPopularityFilters = DEFAULT_STAFF_POPULARITY_FILTERS,
+) {
   return request<CompareResponse>('/api/compare', {
     method: 'POST',
-    body: JSON.stringify({ sourceAnimeId, targetAnimeId, roleFilters }),
+    body: JSON.stringify({ sourceAnimeId, targetAnimeId, roleFilters, ...popularityFilters }),
   })
 }
 
-export function fetchGraph(sourceAnimeId: number, targetAnimeId: number, roleFilters: string[], maxDepth = 2) {
+export function fetchGraph(
+  sourceAnimeId: number,
+  targetAnimeId: number,
+  roleFilters: string[],
+  maxDepth = 2,
+  popularityFilters: StaffPopularityFilters = DEFAULT_STAFF_POPULARITY_FILTERS,
+) {
   return request<GraphResponse>('/api/graph', {
     method: 'POST',
-    body: JSON.stringify({ sourceAnimeId, targetAnimeId, roleFilters, maxDepth }),
+    body: JSON.stringify({ sourceAnimeId, targetAnimeId, roleFilters, maxDepth, ...popularityFilters }),
   })
 }
 

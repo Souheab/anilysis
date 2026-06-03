@@ -45,7 +45,14 @@ def get_anime(anime_id: int, session: Session = Depends(get_session)) -> AnimeDe
 async def compare_anime(request: CompareRequest, session: Session = Depends(get_session)) -> CompareResponse:
     await cache_service.ensure_anime_loaded(session, request.sourceAnimeId)
     await cache_service.ensure_anime_loaded(session, request.targetAnimeId)
-    return graph_service.compare(session, request.sourceAnimeId, request.targetAnimeId, request.roleFilters)
+    return graph_service.compare(
+        session,
+        request.sourceAnimeId,
+        request.targetAnimeId,
+        request.roleFilters,
+        request.staffMinFavourites,
+        request.staffLimit,
+    )
 
 
 @router.post("/graph", response_model=GraphResponse)
@@ -58,6 +65,8 @@ async def graph(request: GraphRequest, session: Session = Depends(get_session)) 
         request.targetAnimeId,
         request.roleFilters,
         request.maxDepth,
+        request.staffMinFavourites,
+        request.staffLimit,
     )
 
 

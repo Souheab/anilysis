@@ -847,6 +847,64 @@ button {
   transform: translateX(18px);
 }
 
+.popularity-controls {
+  display: grid;
+  gap: 14px;
+  margin-top: 22px;
+  border-top: 1px solid rgba(148, 163, 184, 0.16);
+  padding-top: 18px;
+}
+
+.popularity-control {
+  display: grid;
+  gap: 8px;
+}
+
+.popularity-control label {
+  color: #cbd5e1;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.number-input {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.number-input,
+.popularity-control select {
+  min-height: 38px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.56);
+  color: #f8fafc;
+}
+
+.number-input {
+  padding: 0 10px;
+}
+
+.number-input svg {
+  color: #fed7aa;
+}
+
+.number-input input,
+.popularity-control select {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #f8fafc;
+  font: inherit;
+}
+
+.popularity-control select {
+  padding: 0 10px;
+  cursor: pointer;
+}
+
 @media (max-width: 1240px) {
   .app-shell {
     overflow: auto;

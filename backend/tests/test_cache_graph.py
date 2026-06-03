@@ -159,6 +159,17 @@ def test_role_filters_limit_shared_staff_and_graph(session: Session):
     assert all("Director" not in edge.data.get("roles", []) for edge in graph.edges)
 
 
+def test_staff_popularity_filters_limit_shared_staff_and_graph(session: Session):
+    seed_compare_data(session)
+
+    threshold_result = GraphService().compare(session, 1, 2, [], staff_min_favourites=5_000, staff_limit=None)
+    top_one_graph = GraphService().cytoscape_graph(session, 1, 2, [], max_depth=1, staff_min_favourites=0, staff_limit=1)
+
+    assert [staff.name for staff in threshold_result.sharedStaff] == ["Shared Director"]
+    assert "staff:100" in {node.data["id"] for node in top_one_graph.nodes}
+    assert "staff:101" not in {node.data["id"] for node in top_one_graph.nodes}
+
+
 def test_cytoscape_graph_returns_highlighted_path(session: Session):
     seed_compare_data(session)
 
