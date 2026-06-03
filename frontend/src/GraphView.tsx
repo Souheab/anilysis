@@ -13,9 +13,6 @@ export interface GraphViewHandle {
 interface GraphViewProps {
   graph: GraphResponse | null
   selectedNodeId: string | null
-  activeRoleFilters: string[]
-  allRoleFilterIds: string[]
-  hideUnselectedNodeTypes: boolean
   onNodeSelect: (nodeId: string) => void
 }
 
@@ -26,19 +23,8 @@ interface MiniNode {
   y: number
 }
 
-function edgeIsFilteredOut(edge: GraphResponse['edges'][number], activeRoleFilters: string[], allRoleFilterIds: string[]) {
-  if (activeRoleFilters.length === allRoleFilterIds.length) {
-    return false
-  }
-  const categories = edge.data.roleCategories
-  if (!Array.isArray(categories)) {
-    return false
-  }
-  return categories.every((category) => typeof category === 'string' && !activeRoleFilters.includes(category))
-}
-
 export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function GraphView(
-  { graph, selectedNodeId, activeRoleFilters, allRoleFilterIds, hideUnselectedNodeTypes, onNodeSelect },
+  { graph, selectedNodeId, onNodeSelect },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -56,15 +42,10 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       })),
       ...graph.edges.map((edge) => ({
         data: edge.data,
-        classes: [
-          edge.classes,
-          hideUnselectedNodeTypes && edgeIsFilteredOut(edge, activeRoleFilters, allRoleFilterIds) ? 'filtered-out' : '',
-        ]
-          .filter(Boolean)
-          .join(' '),
+        classes: edge.classes,
       })),
     ] as ElementDefinition[]
-  }, [activeRoleFilters, allRoleFilterIds, graph, hideUnselectedNodeTypes])
+  }, [graph])
 
   useImperativeHandle(ref, () => ({
     zoomIn: () => {
@@ -201,12 +182,6 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
           style: {
             'border-color': '#ffffff',
             'border-width': 4,
-          },
-        },
-        {
-          selector: '.filtered-out',
-          style: {
-            display: 'none',
           },
         },
       ],

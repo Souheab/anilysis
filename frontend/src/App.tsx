@@ -2,7 +2,6 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import {
   ArrowRightLeft,
   Building2,
-  EyeOff,
   Film,
   Flame,
   Focus,
@@ -80,7 +79,6 @@ function App() {
   const [targetAnime, setTargetAnime] = useState<AnimeSearchResult | null>(null)
   const [activeSlot, setActiveSlot] = useState<1 | 2>(1)
   const [activeFilters, setActiveFilters] = useState(() => ALL_ROLE_IDS)
-  const [hideUnselectedNodeTypes, setHideUnselectedNodeTypes] = useState(true)
   const [comparison, setComparison] = useState<CompareResponse | null>(null)
   const [graph, setGraph] = useState<GraphResponse | null>(null)
   const [nodeDetail, setNodeDetail] = useState<NodeDetail | null>(null)
@@ -244,9 +242,6 @@ function App() {
             ref={graphRef}
             graph={graph}
             selectedNodeId={selectedNodeId}
-            activeRoleFilters={activeFilters}
-            allRoleFilterIds={ALL_ROLE_IDS}
-            hideUnselectedNodeTypes={hideUnselectedNodeTypes}
             onNodeSelect={selectNode}
           />
           <GraphLegend />
@@ -260,10 +255,8 @@ function App() {
           <RoleFilters
             activeFilters={activeFilters}
             comparison={comparison}
-            hideUnselectedNodeTypes={hideUnselectedNodeTypes}
             onToggle={toggleFilter}
             onReset={() => setActiveFilters(ALL_ROLE_IDS)}
-            onHideToggle={() => setHideUnselectedNodeTypes((current) => !current)}
           />
         </aside>
       </div>
@@ -612,17 +605,13 @@ function NodeTypeIcon({ type }: { type: NodeDetail['type'] }) {
 function RoleFilters({
   activeFilters,
   comparison,
-  hideUnselectedNodeTypes,
   onToggle,
   onReset,
-  onHideToggle,
 }: {
   activeFilters: string[]
   comparison: CompareResponse | null
-  hideUnselectedNodeTypes: boolean
   onToggle: (id: string) => void
   onReset: () => void
-  onHideToggle: () => void
 }) {
   const counts = useMemo(() => {
     const next = new Map<string, number>()
@@ -657,9 +646,6 @@ function RoleFilters({
           )
         })}
       </div>
-      <button type="button" className={`hide-toggle ${hideUnselectedNodeTypes ? 'active' : ''}`} onClick={onHideToggle}>
-        <EyeOff size={18} /> Hide unselected node types
-      </button>
     </section>
   )
 }
