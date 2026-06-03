@@ -107,7 +107,7 @@ async def test_cache_refreshes_and_stores_relationships(session: Session):
 
 
 def seed_compare_data(session: Session) -> None:
-    session.add(Anime(id=1, title_romaji="Source"))
+    session.add(Anime(id=1, title_romaji="Source", description="Source description", favourites=500))
     session.add(Anime(id=2, title_romaji="Target"))
     session.add(Anime(id=3, title_romaji="Bridge"))
     session.add(Staff(id=100, name_full="Shared Director", favourites=10_000))
@@ -167,3 +167,39 @@ def test_cytoscape_graph_returns_highlighted_path(session: Session):
     assert {node.data["id"] for node in graph.nodes} >= {"anime:1", "anime:2"}
     assert graph.highlightedPath
     assert any(edge.classes == "highlighted" for edge in graph.edges)
+
+
+def test_node_detail_enriches_staff_connections(session: Session):
+    seed_compare_data(session)
+
+    detail = GraphService().node_detail(session, "staff", 100)
+
+    assert detail.favourites == 10_000
+    assert detail.connectionCounts.anime == 2
+    assert detail.connectionCounts.roles == 2
+    assert detail.topRoles[0].label == "Director"
+    assert {connection.id for connection in detail.relatedConnections} == {1, 2}
+    assert all(connection.roles == ["Director"] for connection in detail.relatedConnections)
+
+
+def test_node_detail_enriches_studio_connections(session: Session):
+    seed_compare_data(session)
+
+    detail = GraphService().node_detail(session, "studio", 300)
+
+    assert detail.connectionCounts.anime == 2
+    assert [role.label for role in detail.topRoles] == ["Main studio", "Studio"]
+    assert {connection.id for connection in detail.relatedConnections} == {1, 2}
+    assert any(connection.isMain for connection in detail.relatedConnections)
+
+
+def test_node_detail_enriches_anime_counts_and_about(session: Session):
+    seed_compare_data(session)
+
+    detail = GraphService().node_detail(session, "anime", 1)
+
+    assert detail.description == "Source description"
+    assert detail.favourites == 500
+    assert detail.connectionCounts.staff == 3
+    assert detail.connectionCounts.studios == 1
+    assert {role.label for role in detail.topRoles} >= {"Director", "Music", "Script"}

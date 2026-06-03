@@ -100,11 +100,35 @@ class GraphResponse(BaseModel):
     highlightedPath: list[str]
 
 
+class NodeTopRole(BaseModel):
+    label: str
+    category: str | None = None
+    count: int = 0
+
+
+class RelatedConnection(AnimeSearchResult):
+    roles: list[str] = Field(default_factory=list)
+    roleCategories: list[str] = Field(default_factory=list)
+    isMain: bool | None = None
+
+
+class ConnectionCounts(BaseModel):
+    anime: int = 0
+    staff: int = 0
+    studios: int = 0
+    roles: int = 0
+
+
 class NodeDetail(BaseModel):
     id: int
     type: NodeType
     label: str
     imageUrl: str | None = None
     siteUrl: str | None = None
+    description: str | None = None
+    favourites: int | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     relatedAnime: list[AnimeSearchResult] = Field(default_factory=list)
+    topRoles: list[NodeTopRole] = Field(default_factory=list)
+    relatedConnections: list[RelatedConnection] = Field(default_factory=list)
+    connectionCounts: ConnectionCounts = Field(default_factory=ConnectionCounts)

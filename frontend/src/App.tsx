@@ -1,12 +1,23 @@
-import { useCallback, useMemo, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ExternalLink,
-  GitCompareArrows,
+  ArrowRightLeft,
+  Building2,
+  EyeOff,
+  Film,
+  Flame,
+  Focus,
+  Hand,
+  Info,
   Loader2,
-  Network,
+  Maximize2,
+  MousePointer2,
+  Plus,
   Search,
   SlidersHorizontal,
+  Users,
   X,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react'
 
 import './App.css'
@@ -21,18 +32,20 @@ import {
   type NodeDetail,
   type SharedStaff,
 } from './api'
-import { GraphView } from './GraphView'
+import { GraphView, type GraphViewHandle } from './GraphView'
 
 const ROLE_FILTERS = [
-  { id: 'direction', label: 'Direction' },
-  { id: 'writing', label: 'Writing' },
-  { id: 'design', label: 'Design' },
-  { id: 'music', label: 'Music' },
-  { id: 'animation', label: 'Animation' },
-  { id: 'production', label: 'Production' },
-  { id: 'studio', label: 'Studio' },
-  { id: 'other', label: 'Other' },
+  { id: 'direction', label: 'Director', color: '#b580ff' },
+  { id: 'writing', label: 'Writer', color: '#ffd400' },
+  { id: 'music', label: 'Composer', color: '#2aa8ff' },
+  { id: 'design', label: 'Character Design', color: '#26d9d1' },
+  { id: 'animation', label: 'Animation Director', color: '#4bd66d' },
+  { id: 'production', label: 'Production', color: '#ff8a3d' },
+  { id: 'studio', label: 'Studio', color: '#65c56f' },
+  { id: 'other', label: 'Other', color: '#94a3b8' },
 ]
+
+const ALL_ROLE_IDS = ROLE_FILTERS.map((filter) => filter.id)
 
 function titleFor(anime: AnimeSearchResult) {
   return anime.titleEnglish || anime.titleRomaji
@@ -42,40 +55,123 @@ function filtersForApi(activeFilters: string[]) {
   return activeFilters.length === ROLE_FILTERS.length ? [] : activeFilters
 }
 
+function formatMeta(anime: AnimeSearchResult) {
+  return [anime.format, anime.year].filter(Boolean).join(' • ') || 'Cached title'
+}
+
+function compactNumber(value?: number | null) {
+  if (!value) {
+    return '0'
+  }
+  return Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+}
+
+function stripHtml(value?: string | null) {
+  return value ? value.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim() : ''
+}
+
+function primaryRole(staff: SharedStaff) {
+  return staff.sourceRoles[0] || staff.targetRoles[0] || staff.roleCategories[0] || 'Role'
+}
+
 function App() {
+  const graphRef = useRef<GraphViewHandle | null>(null)
   const [sourceAnime, setSourceAnime] = useState<AnimeSearchResult | null>(null)
   const [targetAnime, setTargetAnime] = useState<AnimeSearchResult | null>(null)
-  const [activeFilters, setActiveFilters] = useState(() => ROLE_FILTERS.map((filter) => filter.id))
+  const [activeSlot, setActiveSlot] = useState<1 | 2>(1)
+  const [activeFilters, setActiveFilters] = useState(() => ALL_ROLE_IDS)
+  const [hideUnselectedNodeTypes, setHideUnselectedNodeTypes] = useState(true)
   const [comparison, setComparison] = useState<CompareResponse | null>(null)
   const [graph, setGraph] = useState<GraphResponse | null>(null)
   const [nodeDetail, setNodeDetail] = useState<NodeDetail | null>(null)
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [isComparing, setIsComparing] = useState(false)
   const [isLoadingNode, setIsLoadingNode] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const apiFilters = useMemo(() => filtersForApi(activeFilters), [activeFilters])
   const canCompare = Boolean(sourceAnime && targetAnime && sourceAnime.id !== targetAnime.id)
+  const duplicateSelection = Boolean(sourceAnime && targetAnime && sourceAnime.id === targetAnime.id)
 
-  const runComparison = useCallback(async () => {
-    if (!sourceAnime || !targetAnime || sourceAnime.id === targetAnime.id) {
+  useEffect(() => {
+    if (!sourceAnime || !targetAnime) {
       return
     }
-    setIsComparing(true)
-    setError(null)
-    try {
-      const [nextComparison, nextGraph] = await Promise.all([
-        compareAnime(sourceAnime.id, targetAnime.id, apiFilters),
-        fetchGraph(sourceAnime.id, targetAnime.id, apiFilters, 2),
-      ])
-      setComparison(nextComparison)
-      setGraph(nextGraph)
-      setNodeDetail(null)
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Comparison failed')
-    } finally {
-      setIsComparing(false)
+    if (sourceAnime.id === targetAnime.id) {
+      return
+    }
+
+    let cancelled = false
+    window.queueMicrotask(() => {
+      if (!cancelled) {
+        setIsComparing(true)
+        setError(null)
+      }
+    })
+    void Promise.all([
+      compareAnime(sourceAnime.id, targetAnime.id, apiFilters),
+      fetchGraph(sourceAnime.id, targetAnime.id, apiFilters, 2),
+    ])
+      .then(([nextComparison, nextGraph]) => {
+        if (cancelled) return
+        setComparison(nextComparison)
+        setGraph(nextGraph)
+        setNodeDetail(null)
+        setSelectedNodeId(null)
+      })
+      .catch((requestError) => {
+        if (cancelled) return
+        setError(requestError instanceof Error ? requestError.message : 'Comparison failed')
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsComparing(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
     }
   }, [apiFilters, sourceAnime, targetAnime])
+
+  const clearComparisonState = useCallback(() => {
+    setComparison(null)
+    setGraph(null)
+    setNodeDetail(null)
+    setSelectedNodeId(null)
+  }, [])
+
+  const assignAnime = useCallback(
+    (anime: AnimeSearchResult, slot = activeSlot) => {
+      setError(null)
+      if ((slot === 1 && targetAnime?.id === anime.id) || (slot === 2 && sourceAnime?.id === anime.id)) {
+        clearComparisonState()
+      }
+      if (slot === 1) {
+        setSourceAnime(anime)
+        if (!targetAnime) setActiveSlot(2)
+      } else {
+        setTargetAnime(anime)
+        if (!sourceAnime) setActiveSlot(1)
+      }
+    },
+    [activeSlot, clearComparisonState, sourceAnime, targetAnime],
+  )
+
+  const clearSourceAnime = () => {
+    setSourceAnime(null)
+    clearComparisonState()
+  }
+
+  const clearTargetAnime = () => {
+    setTargetAnime(null)
+    clearComparisonState()
+  }
+
+  const swapAnime = () => {
+    setSourceAnime(targetAnime)
+    setTargetAnime(sourceAnime)
+  }
 
   const toggleFilter = (filterId: string) => {
     setActiveFilters((current) => {
@@ -92,6 +188,7 @@ function App() {
     if (!type || !Number.isFinite(id)) {
       return
     }
+    setSelectedNodeId(nodeId)
     setIsLoadingNode(true)
     setError(null)
     try {
@@ -104,362 +201,466 @@ function App() {
   }, [])
 
   return (
-    <main className="min-h-screen bg-slate-100 text-slate-950">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-5 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-700">Six Degrees of Anime</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-normal text-slate-950 md:text-4xl">
-              Creative connection finder
-            </h1>
-          </div>
-          <button
-            type="button"
-            onClick={runComparison}
-            disabled={!canCompare || isComparing}
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-teal-700 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-          >
-            {isComparing ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitCompareArrows className="h-4 w-4" />}
-            Compare
-          </button>
-        </div>
+    <main className="app-shell">
+      <header className="topbar">
+        <h1>Six Degrees of Anime</h1>
+        <CommandSearch
+          activeSlot={activeSlot}
+          sourceAnime={sourceAnime}
+          targetAnime={targetAnime}
+          onActiveSlotChange={setActiveSlot}
+          onSelect={assignAnime}
+        />
       </header>
 
-      <div className="mx-auto grid max-w-7xl gap-5 px-5 py-5 xl:grid-cols-[360px_minmax(0,1fr)_320px]">
-        <aside className="space-y-5">
-          <section className="border border-slate-200 bg-white p-4">
-            <div className="mb-4 flex items-center gap-2">
-              <Search className="h-4 w-4 text-teal-700" />
-              <h2 className="text-base font-semibold">Anime Pair</h2>
-            </div>
-            <div className="space-y-4">
-              <AnimeSearchBox label="Source anime" selected={sourceAnime} onSelect={setSourceAnime} />
-              <AnimeSearchBox label="Target anime" selected={targetAnime} onSelect={setTargetAnime} />
-            </div>
-          </section>
+      <div className="workspace">
+        <aside className="left-panel panel">
+          <PanelHeader
+            title="Compare Anime"
+            action={<button type="button" className="icon-button-ghost" onClick={swapAnime} aria-label="Swap anime"><ArrowRightLeft size={18} /></button>}
+          />
+          <div className="anime-slots">
+            <AnimeSlot slot={1} anime={sourceAnime} active={activeSlot === 1} onPick={() => setActiveSlot(1)} onClear={clearSourceAnime} />
+            <AnimeSlot slot={2} anime={targetAnime} active={activeSlot === 2} onPick={() => setActiveSlot(2)} onClear={clearTargetAnime} />
+          </div>
 
-          <section className="border border-slate-200 bg-white p-4">
-            <div className="mb-4 flex items-center gap-2">
-              <SlidersHorizontal className="h-4 w-4 text-amber-700" />
-              <h2 className="text-base font-semibold">Role Filters</h2>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {ROLE_FILTERS.map((filter) => {
-                const active = activeFilters.includes(filter.id)
-                return (
-                  <button
-                    type="button"
-                    key={filter.id}
-                    onClick={() => toggleFilter(filter.id)}
-                    className={`h-9 rounded-md border px-3 text-sm font-medium transition ${
-                      active
-                        ? 'border-teal-700 bg-teal-50 text-teal-800'
-                        : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
-                    }`}
-                  >
-                    {filter.label}
-                  </button>
-                )
-              })}
-            </div>
-          </section>
+          {duplicateSelection ? <div className="inline-error">Pick two different anime.</div> : null}
+          {error ? <div className="inline-error">{error}</div> : null}
 
-          {error ? <div className="border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
+          <ConnectionScore comparison={comparison} loading={isComparing} canCompare={canCompare} />
+          <TopSharedStaff items={comparison?.sharedStaff ?? []} onSelect={(staff) => void selectNode(`staff:${staff.staffId}`)} />
         </aside>
 
-        <section className="space-y-5">
-          <ComparisonSummary comparison={comparison} loading={isComparing} />
-
-          <section className="border border-slate-200 bg-white">
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-              <div className="flex items-center gap-2">
-                <Network className="h-4 w-4 text-teal-700" />
-                <h2 className="text-base font-semibold">Connection Graph</h2>
-              </div>
-              {graph ? <span className="text-xs text-slate-500">{graph.nodes.length} nodes</span> : null}
-            </div>
-            <GraphView graph={graph} onNodeSelect={selectNode} />
-          </section>
-
-          <section className="grid gap-5 lg:grid-cols-2">
-            <SharedStaffList items={comparison?.sharedStaff ?? []} onSelect={(staff) => selectNode(`staff:${staff.staffId}`)} />
-            <SharedStudioList items={comparison?.sharedStudios ?? []} onSelect={(studioId) => selectNode(`studio:${studioId}`)} />
-          </section>
+        <section className="graph-panel">
+          <GraphToolbar
+            loading={isComparing}
+            nodeCount={graph?.nodes.length ?? 0}
+            onZoomIn={() => graphRef.current?.zoomIn()}
+            onZoomOut={() => graphRef.current?.zoomOut()}
+            onFit={() => graphRef.current?.fit()}
+            onReset={() => graphRef.current?.reset()}
+          />
+          <GraphView
+            ref={graphRef}
+            graph={graph}
+            selectedNodeId={selectedNodeId}
+            activeRoleFilters={activeFilters}
+            allRoleFilterIds={ALL_ROLE_IDS}
+            hideUnselectedNodeTypes={hideUnselectedNodeTypes}
+            onNodeSelect={selectNode}
+          />
+          <GraphLegend />
         </section>
 
-        <DetailPanel detail={nodeDetail} loading={isLoadingNode} onClose={() => setNodeDetail(null)} />
+        <aside className="right-panel panel">
+          <DetailPanel detail={nodeDetail} loading={isLoadingNode} onClose={() => {
+            setNodeDetail(null)
+            setSelectedNodeId(null)
+          }} />
+          <RoleFilters
+            activeFilters={activeFilters}
+            comparison={comparison}
+            hideUnselectedNodeTypes={hideUnselectedNodeTypes}
+            onToggle={toggleFilter}
+            onReset={() => setActiveFilters(ALL_ROLE_IDS)}
+            onHideToggle={() => setHideUnselectedNodeTypes((current) => !current)}
+          />
+        </aside>
       </div>
     </main>
   )
 }
 
-interface AnimeSearchBoxProps {
-  label: string
-  selected: AnimeSearchResult | null
-  onSelect: (anime: AnimeSearchResult) => void
-}
-
-function AnimeSearchBox({ label, selected, onSelect }: AnimeSearchBoxProps) {
+function CommandSearch({
+  activeSlot,
+  sourceAnime,
+  targetAnime,
+  onActiveSlotChange,
+  onSelect,
+}: {
+  activeSlot: 1 | 2
+  sourceAnime: AnimeSearchResult | null
+  targetAnime: AnimeSearchResult | null
+  onActiveSlotChange: (slot: 1 | 2) => void
+  onSelect: (anime: AnimeSearchResult, slot?: 1 | 2) => void
+}) {
+  const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<AnimeSearchResult[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement | null>(null)
 
-  const runSearch = async (nextQuery: string) => {
-    setQuery(nextQuery)
-    if (nextQuery.trim().length < 2) {
-      setResults([])
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setOpen(true)
+        window.setTimeout(() => inputRef.current?.focus(), 0)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  useEffect(() => {
+    if (query.trim().length < 2) {
       return
     }
-    setLoading(true)
-    setError(null)
-    try {
-      setResults(await searchAnime(nextQuery.trim()))
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Search failed')
-    } finally {
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => {
+      setLoading(true)
+      setError(null)
+      void searchAnime(query.trim(), controller.signal)
+        .then(setResults)
+        .catch((requestError) => {
+          if (controller.signal.aborted) return
+          setError(requestError instanceof Error ? requestError.message : 'Search failed')
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false)
+        })
+    }, 220)
+    return () => {
+      controller.abort()
+      window.clearTimeout(timeout)
+    }
+  }, [query])
+
+  const choose = (anime: AnimeSearchResult, slot = activeSlot) => {
+    onSelect(anime, slot)
+    setQuery(titleFor(anime))
+    setOpen(false)
+  }
+
+  const updateQuery = (value: string) => {
+    setQuery(value)
+    if (value.trim().length < 2) {
+      setResults([])
+      setError(null)
       setLoading(false)
     }
   }
 
   return (
-    <div>
-      <label className="mb-2 block text-sm font-medium text-slate-700">{label}</label>
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+    <div className="command-wrap">
+      <div className="search-box" onClick={() => setOpen(true)}>
+        <Search size={18} />
         <input
+          ref={inputRef}
           value={query}
-          onChange={(event) => void runSearch(event.target.value)}
-          placeholder="Search AniList titles"
-          className="h-10 w-full rounded-md border border-slate-300 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-teal-700 focus:ring-2 focus:ring-teal-100"
+          onFocus={() => setOpen(true)}
+          onChange={(event) => updateQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && results[0]) {
+              choose(results[0])
+            }
+            if (event.key === 'Escape') {
+              setOpen(false)
+            }
+          }}
+          placeholder="Search anime, staff, or studio..."
         />
       </div>
-      {selected ? (
-        <div className="mt-3 flex gap-3 border border-slate-200 bg-slate-50 p-2">
-          {selected.coverImageUrl ? (
-            <img src={selected.coverImageUrl} alt="" className="h-16 w-12 object-cover" />
-          ) : (
-            <div className="h-16 w-12 bg-slate-200" />
-          )}
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">{titleFor(selected)}</p>
-            <p className="text-xs text-slate-500">
-              {[selected.year, selected.format].filter(Boolean).join(' • ') || 'Cached after comparison'}
-            </p>
-          </div>
-        </div>
-      ) : null}
-      {loading ? <p className="mt-2 text-xs text-slate-500">Searching...</p> : null}
-      {error ? <p className="mt-2 text-xs text-red-600">{error}</p> : null}
-      {results.length > 0 ? (
-        <div className="mt-2 max-h-72 overflow-auto border border-slate-200 bg-white">
-          {results.map((anime) => (
-            <button
-              key={anime.id}
-              type="button"
-              onClick={() => {
-                onSelect(anime)
-                setResults([])
-                setQuery(titleFor(anime))
-              }}
-              className="flex w-full gap-3 border-b border-slate-100 p-2 text-left transition last:border-b-0 hover:bg-slate-50"
-            >
-              {anime.coverImageUrl ? (
-                <img src={anime.coverImageUrl} alt="" className="h-14 w-10 object-cover" />
-              ) : (
-                <div className="h-14 w-10 bg-slate-200" />
-              )}
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-medium">{titleFor(anime)}</span>
-                <span className="block text-xs text-slate-500">
-                  {[anime.year, anime.format].filter(Boolean).join(' • ')}
-                </span>
-              </span>
+      {open ? (
+        <div className="command-popover">
+          <div className="slot-tabs" role="tablist" aria-label="Assignment slot">
+            <button type="button" className={activeSlot === 1 ? 'active' : ''} onClick={() => onActiveSlotChange(1)}>
+              Slot 1 {sourceAnime ? `• ${titleFor(sourceAnime)}` : ''}
             </button>
-          ))}
+            <button type="button" className={activeSlot === 2 ? 'active' : ''} onClick={() => onActiveSlotChange(2)}>
+              Slot 2 {targetAnime ? `• ${titleFor(targetAnime)}` : ''}
+            </button>
+          </div>
+          {loading ? <p className="command-state"><Loader2 className="spin" size={16} /> Searching AniList...</p> : null}
+          {error ? <p className="command-state error-text">{error}</p> : null}
+          {!loading && !error && query.trim().length < 2 ? <p className="command-state">Type at least two characters.</p> : null}
+          <div className="command-results">
+            {results.map((anime) => (
+              <div key={anime.id} className="command-result">
+                <AnimeThumb anime={anime} />
+                <button type="button" className="result-main" onClick={() => choose(anime)}>
+                  <span>{titleFor(anime)}</span>
+                  <small>{formatMeta(anime)}</small>
+                </button>
+                <button type="button" className="mini-assign" onClick={() => choose(anime, 1)}>1</button>
+                <button type="button" className="mini-assign" onClick={() => choose(anime, 2)}>2</button>
+              </div>
+            ))}
+          </div>
         </div>
       ) : null}
     </div>
   )
 }
 
-function ComparisonSummary({ comparison, loading }: { comparison: CompareResponse | null; loading: boolean }) {
-  if (loading) {
-    return (
-      <section className="grid min-h-40 place-items-center border border-slate-200 bg-white text-sm text-slate-500">
-        <Loader2 className="mb-2 h-5 w-5 animate-spin text-teal-700" />
-        Fetching staff, studios, graph paths, and score.
-      </section>
-    )
-  }
-
-  if (!comparison) {
-    return (
-      <section className="border border-slate-200 bg-white p-5">
-        <p className="text-sm text-slate-500">Search two anime to reveal shared staff, studios, and the shortest cached path.</p>
-      </section>
-    )
-  }
-
-  const pathText = comparison.shortestPath.map((node) => node.label).join(' → ')
-  const scoreRows = [
-    ['Shared staff', comparison.scoreBreakdown.sharedStaff],
-    ['Shared studios', comparison.scoreBreakdown.sharedStudios],
-    ['Popularity bonus', comparison.scoreBreakdown.popularityBonus],
-    ['Path bonus', comparison.scoreBreakdown.pathBonus],
-  ]
-
+function PanelHeader({ title, action }: { title: string; action?: ReactNode }) {
   return (
-    <section className="border border-slate-200 bg-white p-5">
-      <div className="grid gap-4 md:grid-cols-[160px_minmax(0,1fr)]">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Connection Score</p>
-          <p className="mt-2 text-5xl font-semibold text-teal-700">{Math.round(comparison.score)}</p>
-        </div>
-        <div className="space-y-3">
-          <h2 className="text-xl font-semibold">
-            {titleFor(comparison.sourceAnime)} to {titleFor(comparison.targetAnime)}
-          </h2>
-          <p className="text-sm text-slate-600">
-            {comparison.sharedStaff.length} shared staff and {comparison.sharedStudios.length} shared studios found in the local cache.
-          </p>
-          <p className="text-sm font-medium text-slate-800">{pathText || 'No cached creative path found.'}</p>
-          <div className="grid gap-2 sm:grid-cols-4">
-            {scoreRows.map(([label, value]) => (
-              <div key={label} className="border border-slate-200 bg-slate-50 p-2">
-                <p className="text-xs text-slate-500">{label}</p>
-                <p className="text-sm font-semibold">{value}</p>
-              </div>
-            ))}
+    <div className="panel-header">
+      <h2>{title}</h2>
+      {action}
+    </div>
+  )
+}
+
+function AnimeSlot({
+  slot,
+  anime,
+  active,
+  onPick,
+  onClear,
+}: {
+  slot: 1 | 2
+  anime: AnimeSearchResult | null
+  active: boolean
+  onPick: () => void
+  onClear: () => void
+}) {
+  return (
+    <button type="button" className={`anime-slot ${active ? 'active' : ''}`} onClick={onPick}>
+      <span className="slot-number">{slot}</span>
+      {anime ? <AnimeThumb anime={anime} /> : <span className="empty-thumb"><Plus size={20} /></span>}
+      <span className="slot-copy">
+        <strong>{anime ? titleFor(anime) : `Choose anime ${slot}`}</strong>
+        <small>{anime ? formatMeta(anime) : 'Use the search bar'}</small>
+      </span>
+      {anime ? (
+        <span
+          className="clear-slot"
+          onClick={(event) => {
+            event.stopPropagation()
+            onClear()
+          }}
+        >
+          <X size={16} />
+        </span>
+      ) : null}
+    </button>
+  )
+}
+
+function AnimeThumb({ anime }: { anime: AnimeSearchResult }) {
+  if (anime.coverImageUrl) {
+    return <img className="anime-thumb" src={anime.coverImageUrl} alt="" />
+  }
+  return <span className="anime-thumb fallback"><Film size={18} /></span>
+}
+
+function ConnectionScore({ comparison, loading, canCompare }: { comparison: CompareResponse | null; loading: boolean; canCompare: boolean }) {
+  const score = Math.round(comparison?.score ?? 0)
+  const activeStars = Math.round(score / 20)
+  return (
+    <section className="score-card">
+      <div className="score-title">
+        <span>Connection Score</span>
+        <Info size={15} />
+      </div>
+      {loading ? (
+        <div className="loading-row"><Loader2 className="spin" size={18} /> Comparing creative DNA...</div>
+      ) : (
+        <>
+          <div className="score-row">
+            <strong>{comparison ? `${score}%` : '--'}</strong>
+            <span className="stars">{Array.from({ length: 5 }, (_, index) => <span key={index}>{index < activeStars ? '★' : '☆'}</span>)}</span>
           </div>
-        </div>
-      </div>
+          <p>{comparison ? 'Shared creative DNA through staff and studio overlap' : canCompare ? 'Comparison will run automatically.' : 'Choose two anime to compare.'}</p>
+        </>
+      )}
     </section>
   )
 }
 
-function SharedStaffList({ items, onSelect }: { items: SharedStaff[]; onSelect: (staff: SharedStaff) => void }) {
+function TopSharedStaff({ items, onSelect }: { items: SharedStaff[]; onSelect: (staff: SharedStaff) => void }) {
   return (
-    <section className="border border-slate-200 bg-white">
-      <div className="border-b border-slate-200 px-4 py-3">
-        <h2 className="text-base font-semibold">Shared Staff</h2>
+    <section className="staff-card">
+      <div className="section-title">
+        <h3>Top Shared Staff</h3>
+        <ArrowRightLeft size={16} />
       </div>
-      <div className="max-h-96 overflow-auto">
-        {items.length === 0 ? <p className="p-4 text-sm text-slate-500">No shared staff under the active filters.</p> : null}
-        {items.map((staff) => (
-          <button
-            key={staff.staffId}
-            type="button"
-            onClick={() => onSelect(staff)}
-            className="flex w-full gap-3 border-b border-slate-100 p-3 text-left transition last:border-b-0 hover:bg-slate-50"
-          >
-            {staff.imageUrl ? <img src={staff.imageUrl} alt="" className="h-12 w-12 object-cover" /> : <div className="h-12 w-12 bg-slate-200" />}
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-semibold">{staff.name}</span>
-              <span className="block truncate text-xs text-slate-500">{staff.sourceRoles.join(', ')}</span>
-              <span className="block truncate text-xs text-slate-500">{staff.targetRoles.join(', ')}</span>
-            </span>
-            <span className="text-sm font-semibold text-teal-700">{staff.weight}</span>
+      <div className="staff-list">
+        {items.length === 0 ? <p className="muted">No shared staff under the active filters.</p> : null}
+        {items.slice(0, 5).map((staff, index) => (
+          <button key={staff.staffId} type="button" className="staff-row" onClick={() => onSelect(staff)}>
+            <span className="rank">{index + 1}</span>
+            <span className="staff-name">{staff.name}</span>
+            <span className="role-pill">{primaryRole(staff)}</span>
+            <span className="heat"><Flame size={14} /> {compactNumber(staff.favourites)}</span>
           </button>
         ))}
       </div>
+      <button type="button" className="full-list-button">View full shared staff list <span>→</span></button>
     </section>
   )
 }
 
-function SharedStudioList({ items, onSelect }: { items: CompareResponse['sharedStudios']; onSelect: (studioId: number) => void }) {
+function GraphToolbar({
+  loading,
+  nodeCount,
+  onZoomIn,
+  onZoomOut,
+  onFit,
+  onReset,
+}: {
+  loading: boolean
+  nodeCount: number
+  onZoomIn: () => void
+  onZoomOut: () => void
+  onFit: () => void
+  onReset: () => void
+}) {
   return (
-    <section className="border border-slate-200 bg-white">
-      <div className="border-b border-slate-200 px-4 py-3">
-        <h2 className="text-base font-semibold">Shared Studios</h2>
+    <div className="graph-toolbar">
+      <div className="tool-cluster">
+        <button type="button" className="tool-button active" title="Select"><MousePointer2 size={18} /></button>
+        <button type="button" className="tool-button" title="Pan"><Hand size={18} /></button>
+        <button type="button" className="tool-button" title="Fit view" onClick={onFit}><Maximize2 size={18} /></button>
+        <button type="button" className="tool-button" title="Zoom in" onClick={onZoomIn}><ZoomIn size={18} /></button>
+        <button type="button" className="tool-button" title="Zoom out" onClick={onZoomOut}><ZoomOut size={18} /></button>
       </div>
-      <div className="max-h-96 overflow-auto">
-        {items.length === 0 ? <p className="p-4 text-sm text-slate-500">No shared studios under the active filters.</p> : null}
-        {items.map((studio) => (
-          <button
-            key={studio.studioId}
-            type="button"
-            onClick={() => onSelect(studio.studioId)}
-            className="flex w-full items-center justify-between border-b border-slate-100 p-3 text-left transition last:border-b-0 hover:bg-slate-50"
-          >
-            <span>
-              <span className="block text-sm font-semibold">{studio.name}</span>
-              <span className="block text-xs text-slate-500">
-                {studio.sourceIsMain || studio.targetIsMain ? 'Main studio overlap' : 'Supporting studio overlap'}
-              </span>
-            </span>
-            <span className="text-sm font-semibold text-amber-700">{studio.weight}</span>
-          </button>
-        ))}
+      <div className="tool-cluster">
+        {loading ? <span className="graph-loading"><Loader2 className="spin" size={16} /> Loading</span> : <span className="node-count">{nodeCount} nodes</span>}
+        <button type="button" className="reset-button" onClick={onReset}><Focus size={17} /> Reset view</button>
       </div>
-    </section>
+    </div>
+  )
+}
+
+function GraphLegend() {
+  return (
+    <div className="legend">
+      <h3>Legend</h3>
+      <span><i className="legend-anime" /> Anime</span>
+      <span><i className="legend-staff" /> Staff</span>
+      <span><i className="legend-studio" /> Studio</span>
+      <span><i className="legend-line primary" /> Primary Role</span>
+      <span><i className="legend-line dashed" /> Studio / Affiliation</span>
+      <span><i className="legend-line shortest" /> Shortest Path</span>
+    </div>
   )
 }
 
 function DetailPanel({ detail, loading, onClose }: { detail: NodeDetail | null; loading: boolean; onClose: () => void }) {
   return (
-    <aside className="min-h-[280px] border border-slate-200 bg-white">
-      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-        <h2 className="text-base font-semibold">Node Details</h2>
-        {detail ? (
-          <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-slate-100">
-            <X className="h-4 w-4" />
-          </button>
-        ) : null}
+    <section className="detail-section">
+      <div className="panel-header">
+        <h2>Node Details</h2>
+        {detail ? <button type="button" className="icon-close" onClick={onClose}><X size={18} /></button> : null}
       </div>
-      {loading ? (
-        <div className="grid min-h-52 place-items-center text-sm text-slate-500">
-          <Loader2 className="mb-2 h-5 w-5 animate-spin text-teal-700" />
-          Loading details.
-        </div>
-      ) : null}
-      {!loading && !detail ? <p className="p-4 text-sm text-slate-500">Click a graph node or list item to inspect cached details.</p> : null}
-      {!loading && detail ? (
-        <div className="space-y-4 p-4">
-          {detail.imageUrl ? <img src={detail.imageUrl} alt="" className="h-44 w-full object-cover" /> : null}
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{detail.type}</p>
-            <h3 className="mt-1 text-lg font-semibold">{detail.label}</h3>
-          </div>
-          {detail.siteUrl ? (
-            <a href={detail.siteUrl} target="_blank" className="inline-flex items-center gap-2 text-sm font-semibold text-teal-700">
-              AniList
-              <ExternalLink className="h-4 w-4" />
-            </a>
-          ) : null}
-          <Metadata metadata={detail.metadata} />
-          {detail.relatedAnime.length > 0 ? (
-            <div>
-              <p className="mb-2 text-sm font-semibold">Related cached anime</p>
-              <div className="space-y-2">
-                {detail.relatedAnime.slice(0, 8).map((anime) => (
-                  <p key={anime.id} className="truncate border border-slate-200 bg-slate-50 px-2 py-1 text-sm">
-                    {titleFor(anime)}
-                  </p>
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </aside>
+      {loading ? <div className="detail-empty"><Loader2 className="spin" size={18} /> Loading details.</div> : null}
+      {!loading && !detail ? <div className="detail-empty">Select a graph node to inspect its roles and connected anime.</div> : null}
+      {!loading && detail ? <NodeDetailContent detail={detail} /> : null}
+    </section>
   )
 }
 
-function Metadata({ metadata }: { metadata: Record<string, unknown> }) {
-  const entries = Object.entries(metadata).filter(([, value]) => value !== null && value !== undefined && value !== '')
-  if (entries.length === 0) {
-    return null
-  }
+function NodeDetailContent({ detail }: { detail: NodeDetail }) {
+  const about = stripHtml(detail.description)
+  const related = detail.relatedConnections.length > 0 ? detail.relatedConnections : detail.relatedAnime.map((anime) => ({ ...anime, roles: [], roleCategories: [] }))
   return (
-    <dl className="grid grid-cols-2 gap-2 text-sm">
-      {entries.slice(0, 8).map(([key, value]) => (
-        <div key={key} className="border border-slate-200 bg-slate-50 p-2">
-          <dt className="text-xs capitalize text-slate-500">{key.replace(/([A-Z])/g, ' $1')}</dt>
-          <dd className="truncate font-medium">{String(value)}</dd>
+    <div className="detail-content">
+      <div className="node-identity">
+        {detail.imageUrl ? <img src={detail.imageUrl} alt="" /> : <span className={`node-avatar ${detail.type}`}><NodeTypeIcon type={detail.type} /></span>}
+        <span>
+          <h3>{detail.label}</h3>
+          <small>{detail.type}</small>
+        </span>
+      </div>
+      {detail.topRoles.length > 0 ? (
+        <div>
+          <h4>Roles (Top)</h4>
+          <div className="pill-row">
+            {detail.topRoles.slice(0, 4).map((role) => <span key={`${role.label}-${role.category}`} className="role-pill">{role.label}</span>)}
+          </div>
         </div>
-      ))}
-    </dl>
+      ) : null}
+      <div>
+        <h4>Popularity</h4>
+        <p className="popularity"><Flame size={16} /> {compactNumber(detail.favourites)} <small>Community favorites</small></p>
+      </div>
+      {about ? (
+        <div>
+          <h4>About</h4>
+          <p className="about-text">{about}</p>
+        </div>
+      ) : null}
+      <div>
+        <div className="section-title compact">
+          <h4>Connected Anime ({detail.connectionCounts.anime || related.length})</h4>
+          <button type="button">View all</button>
+        </div>
+        <div className="connected-list">
+          {related.slice(0, 8).map((anime) => (
+            <div key={anime.id} className="connected-row">
+              <span className="blue-dot" />
+              <span>{titleFor(anime)}</span>
+              <small>{anime.roles?.[0] ?? anime.format ?? ''}</small>
+            </div>
+          ))}
+          {related.length === 0 ? <p className="muted">No connected anime are cached yet.</p> : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function NodeTypeIcon({ type }: { type: NodeDetail['type'] }) {
+  if (type === 'anime') return <Film size={22} />
+  if (type === 'studio') return <Building2 size={22} />
+  return <Users size={22} />
+}
+
+function RoleFilters({
+  activeFilters,
+  comparison,
+  hideUnselectedNodeTypes,
+  onToggle,
+  onReset,
+  onHideToggle,
+}: {
+  activeFilters: string[]
+  comparison: CompareResponse | null
+  hideUnselectedNodeTypes: boolean
+  onToggle: (id: string) => void
+  onReset: () => void
+  onHideToggle: () => void
+}) {
+  const counts = useMemo(() => {
+    const next = new Map<string, number>()
+    for (const filter of ROLE_FILTERS) next.set(filter.id, 0)
+    for (const staff of comparison?.sharedStaff ?? []) {
+      for (const category of staff.roleCategories) {
+        next.set(category, (next.get(category) ?? 0) + 1)
+      }
+    }
+    if ((comparison?.sharedStudios.length ?? 0) > 0) {
+      next.set('studio', comparison?.sharedStudios.length ?? 0)
+    }
+    return next
+  }, [comparison])
+
+  return (
+    <section className="filter-section">
+      <div className="section-title">
+        <h3>Filters</h3>
+        <button type="button" onClick={onReset}>Reset</button>
+      </div>
+      <div className="filter-list">
+        {ROLE_FILTERS.map((filter) => {
+          const active = activeFilters.includes(filter.id)
+          return (
+            <button key={filter.id} type="button" className="filter-row" onClick={() => onToggle(filter.id)}>
+              <SlidersHorizontal size={15} style={{ color: filter.color }} />
+              <span>{filter.label}</span>
+              <span className={`switch ${active ? 'on' : ''}`} />
+              <small>{counts.get(filter.id) ?? 0}</small>
+            </button>
+          )
+        })}
+      </div>
+      <button type="button" className={`hide-toggle ${hideUnselectedNodeTypes ? 'active' : ''}`} onClick={onHideToggle}>
+        <EyeOff size={18} /> Hide unselected node types
+      </button>
+    </section>
   )
 }
 

@@ -11,11 +11,14 @@ from app.cache import anime_to_detail, included_staff_roles
 from app.models import Anime, AnimeStaffRole, AnimeStudio, Staff, Studio
 from app.schemas import (
     AnimeSearchResult,
+    ConnectionCounts,
     CompareResponse,
     CytoscapeElement,
     GraphResponse,
     NodeDetail,
+    NodeTopRole,
     PathNode,
+    RelatedConnection,
     ScoreBreakdown,
     SharedStaff,
     SharedStudio,
@@ -97,40 +100,67 @@ class GraphService:
     def node_detail(self, session: Session, node_type: str, node_id: int) -> NodeDetail:
         if node_type == "anime":
             anime = self._get_anime(session, node_id)
+            staff_roles = session.exec(select(AnimeStaffRole).where(AnimeStaffRole.anime_id == node_id)).all()
+            studio_roles = session.exec(select(AnimeStudio).where(AnimeStudio.anime_id == node_id)).all()
             return NodeDetail(
                 id=anime.id,
                 type="anime",
                 label=anime.title_english or anime.title_romaji,
                 imageUrl=anime.cover_image_url,
                 siteUrl=anime.site_url,
+                description=anime.description,
+                favourites=anime.favourites,
                 metadata=anime_to_detail(anime).model_dump(mode="json"),
+                topRoles=self._top_staff_roles(staff_roles),
+                connectionCounts=ConnectionCounts(
+                    staff=len({role.staff_id for role in staff_roles}),
+                    studios=len({role.studio_id for role in studio_roles}),
+                    roles=len(staff_roles) + len(studio_roles),
+                ),
             )
         if node_type == "staff":
             staff = session.get(Staff, node_id)
             if not staff:
                 raise HTTPException(status_code=404, detail=f"Staff {node_id} is not cached")
-            related = self._anime_for_staff(session, node_id)
+            staff_roles = session.exec(select(AnimeStaffRole).where(AnimeStaffRole.staff_id == node_id)).all()
+            related_connections = self._staff_related_connections(session, staff_roles)
             return NodeDetail(
                 id=staff.id,
                 type="staff",
                 label=staff.name_full,
                 imageUrl=staff.image_url,
                 siteUrl=staff.site_url,
+                favourites=staff.favourites,
                 metadata={"nameNative": staff.name_native, "favourites": staff.favourites},
-                relatedAnime=related,
+                relatedAnime=[self._connection_to_search_result(item) for item in related_connections],
+                topRoles=self._top_staff_roles(staff_roles),
+                relatedConnections=related_connections,
+                connectionCounts=ConnectionCounts(
+                    anime=len(related_connections),
+                    roles=len(staff_roles),
+                ),
             )
         if node_type == "studio":
             studio = session.get(Studio, node_id)
             if not studio:
                 raise HTTPException(status_code=404, detail=f"Studio {node_id} is not cached")
-            related = self._anime_for_studio(session, node_id)
+            studio_roles = session.exec(select(AnimeStudio).where(AnimeStudio.studio_id == node_id)).all()
+            related_connections = self._studio_related_connections(session, studio_roles)
             return NodeDetail(
                 id=studio.id,
                 type="studio",
                 label=studio.name,
                 siteUrl=studio.site_url,
+                favourites=studio.favourites,
                 metadata={"favourites": studio.favourites},
-                relatedAnime=related,
+                relatedAnime=[self._connection_to_search_result(item) for item in related_connections],
+                topRoles=self._top_studio_roles(studio_roles),
+                relatedConnections=related_connections,
+                connectionCounts=ConnectionCounts(
+                    anime=len(related_connections),
+                    studios=1,
+                    roles=len(studio_roles),
+                ),
             )
         raise HTTPException(status_code=400, detail="Node type must be anime, staff, or studio")
 
@@ -333,7 +363,7 @@ class GraphService:
     def _anime_results(self, session: Session, anime_ids: list[int]) -> list[AnimeSearchResult]:
         if not anime_ids:
             return []
-        anime = session.exec(select(Anime).where(Anime.id.in_(anime_ids))).all()
+        anime = session.exec(select(Anime).where(Anime.id.in_(set(anime_ids)))).all()
         return [
             AnimeSearchResult(
                 id=item.id,
@@ -346,3 +376,85 @@ class GraphService:
             )
             for item in anime
         ]
+
+    def _staff_related_connections(self, session: Session, roles: list[AnimeStaffRole]) -> list[RelatedConnection]:
+        grouped: dict[int, list[AnimeStaffRole]] = defaultdict(list)
+        for role in roles:
+            grouped[role.anime_id].append(role)
+        anime_by_id = {anime.id: anime for anime in self._anime_records(session, list(grouped))}
+        connections: list[RelatedConnection] = []
+        for anime_id, anime_roles in grouped.items():
+            anime = anime_by_id.get(anime_id)
+            if not anime:
+                continue
+            connections.append(
+                RelatedConnection(
+                    **self._anime_result_payload(anime),
+                    roles=sorted({role.role for role in anime_roles}),
+                    roleCategories=sorted({role.role_category for role in anime_roles}),
+                )
+            )
+        return sorted(connections, key=lambda item: (item.year or 0, item.titleEnglish or item.titleRomaji), reverse=True)
+
+    def _studio_related_connections(self, session: Session, roles: list[AnimeStudio]) -> list[RelatedConnection]:
+        grouped = {role.anime_id: role for role in roles}
+        anime_by_id = {anime.id: anime for anime in self._anime_records(session, list(grouped))}
+        connections: list[RelatedConnection] = []
+        for anime_id, studio_role in grouped.items():
+            anime = anime_by_id.get(anime_id)
+            if not anime:
+                continue
+            role_label = "Main studio" if studio_role.is_main else "Studio"
+            connections.append(
+                RelatedConnection(
+                    **self._anime_result_payload(anime),
+                    roles=[role_label],
+                    roleCategories=["studio"],
+                    isMain=studio_role.is_main,
+                )
+            )
+        return sorted(connections, key=lambda item: (item.year or 0, item.titleEnglish or item.titleRomaji), reverse=True)
+
+    def _anime_records(self, session: Session, anime_ids: list[int]) -> list[Anime]:
+        if not anime_ids:
+            return []
+        return session.exec(select(Anime).where(Anime.id.in_(set(anime_ids)))).all()
+
+    def _anime_result_payload(self, anime: Anime) -> dict[str, Any]:
+        return {
+            "id": anime.id,
+            "titleRomaji": anime.title_romaji,
+            "titleEnglish": anime.title_english,
+            "titleNative": anime.title_native,
+            "coverImageUrl": anime.cover_image_url,
+            "year": anime.year,
+            "format": anime.format,
+        }
+
+    def _connection_to_search_result(self, connection: RelatedConnection) -> AnimeSearchResult:
+        return AnimeSearchResult(
+            id=connection.id,
+            titleRomaji=connection.titleRomaji,
+            titleEnglish=connection.titleEnglish,
+            titleNative=connection.titleNative,
+            coverImageUrl=connection.coverImageUrl,
+            year=connection.year,
+            format=connection.format,
+        )
+
+    def _top_staff_roles(self, roles: list[AnimeStaffRole]) -> list[NodeTopRole]:
+        counts: dict[tuple[str, str], int] = defaultdict(int)
+        for role in roles:
+            counts[(role.role, role.role_category)] += 1
+        ranked = sorted(counts.items(), key=lambda item: (item[1], item[0][0]), reverse=True)
+        return [NodeTopRole(label=label, category=category, count=count) for (label, category), count in ranked[:6]]
+
+    def _top_studio_roles(self, roles: list[AnimeStudio]) -> list[NodeTopRole]:
+        main_count = sum(1 for role in roles if role.is_main)
+        supporting_count = len(roles) - main_count
+        top_roles: list[NodeTopRole] = []
+        if main_count:
+            top_roles.append(NodeTopRole(label="Main studio", category="studio", count=main_count))
+        if supporting_count:
+            top_roles.append(NodeTopRole(label="Studio", category="studio", count=supporting_count))
+        return top_roles

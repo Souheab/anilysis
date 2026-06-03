@@ -75,14 +75,38 @@ export interface GraphResponse {
   highlightedPath: string[]
 }
 
+export interface NodeTopRole {
+  label: string
+  category?: string | null
+  count: number
+}
+
+export interface RelatedConnection extends AnimeSearchResult {
+  roles: string[]
+  roleCategories: string[]
+  isMain?: boolean | null
+}
+
+export interface ConnectionCounts {
+  anime: number
+  staff: number
+  studios: number
+  roles: number
+}
+
 export interface NodeDetail {
   id: number
   type: 'anime' | 'staff' | 'studio'
   label: string
   imageUrl?: string | null
   siteUrl?: string | null
+  description?: string | null
+  favourites?: number | null
   metadata: Record<string, unknown>
   relatedAnime: AnimeSearchResult[]
+  topRoles: NodeTopRole[]
+  relatedConnections: RelatedConnection[]
+  connectionCounts: ConnectionCounts
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
