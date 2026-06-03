@@ -1,0 +1,43 @@
+{
+  "name": "six-degrees-of-anime",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    }
+  },
+
+  "forwardPorts": [
+    3000,
+    5173,
+    8000
+  ],
+
+  "portsAttributes": {
+    "5173": {
+      "label": "Vite"
+    },
+    "8000": {
+      "label": "FastAPI"
+    }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.debugpy",
+        "charliermarsh.ruff",
+        "esbenp.prettier-vscode",
+        "dbaeumer.vscode-eslint",
+        "bradlc.vscode-tailwindcss"
+      ]
+    }
+  },
+
+  "postCreateCommand": "python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt",
+
+  "remoteUser": "vscode"
+}
