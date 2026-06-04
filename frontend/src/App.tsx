@@ -836,11 +836,15 @@ function RecentComparisons({
 
 function ConnectionScore({ comparison, loading, canCompare }: { comparison: CompareResponse | null; loading: boolean; canCompare: boolean }) {
   const score = Math.round(comparison?.score ?? 0)
+  const tooltipText = 'Connection score based on shared staff, cast, and studio connections'
   return (
     <section className="score-card">
       <div className="score-title">
         <span>Connection Score</span>
-        <Info size={15} />
+        <span className="score-info" tabIndex={0} aria-label={tooltipText}>
+          <Info size={15} aria-hidden="true" />
+          <span className="score-tooltip" role="tooltip">{tooltipText}</span>
+        </span>
       </div>
       {loading ? (
         <div className="loading-row"><Loader2 className="spin" size={18} /> Comparing creative DNA...</div>
@@ -849,7 +853,7 @@ function ConnectionScore({ comparison, loading, canCompare }: { comparison: Comp
           <div className="score-row">
             <strong>{comparison ? `${score}%` : '--'}</strong>
           </div>
-          <p>{comparison ? 'Connection score based on shared staff, cast, and studio connections' : canCompare ? 'Comparison will run automatically.' : 'Choose two anime to compare.'}</p>
+          {!comparison ? <p>{canCompare ? 'Comparison will run automatically.' : 'Choose two anime to compare.'}</p> : null}
         </>
       )}
     </section>

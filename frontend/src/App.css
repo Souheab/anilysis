@@ -485,6 +485,47 @@ button {
   font-size: 15px;
 }
 
+.score-info {
+  position: relative;
+  display: grid;
+  place-items: center;
+  color: #93c5fd;
+  cursor: help;
+}
+
+.score-info:focus-visible {
+  outline: 2px solid rgba(56, 169, 255, 0.75);
+  outline-offset: 3px;
+  border-radius: 999px;
+}
+
+.score-tooltip {
+  position: absolute;
+  z-index: 20;
+  bottom: calc(100% + 9px);
+  left: 50%;
+  width: max-content;
+  max-width: 260px;
+  transform: translateX(-50%) translateY(4px);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: rgba(3, 12, 24, 0.98);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.34);
+  color: #e2e8f0;
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.score-info:hover .score-tooltip,
+.score-info:focus-visible .score-tooltip {
+  transform: translateX(-50%);
+  opacity: 1;
+}
+
 .score-row {
   display: flex;
   align-items: center;
