@@ -41,7 +41,7 @@ class GraphService:
         allowed_staff_ids = self._allowed_staff_ids(session, staff_min_favourites, staff_limit)
         shared_staff = self._shared_staff(session, source_id, target_id, role_filters, allowed_staff_ids)
         shared_studios = self._shared_studios(session, source_id, target_id, role_filters)
-        graph = self._build_graph(session, role_filters, allowed_staff_ids)
+        graph = self._build_graph(session, role_filters, allowed_staff_ids, anime_ids={source_id, target_id})
         path = self._shortest_path(graph, f"anime:{source_id}", f"anime:{target_id}")
         breakdown = self._score_breakdown(shared_staff, shared_studios, len(path))
         score = min(100.0, sum(breakdown.model_dump().values()))
@@ -66,7 +66,7 @@ class GraphService:
         staff_limit: int | None = 20,
     ) -> GraphResponse:
         allowed_staff_ids = self._allowed_staff_ids(session, staff_min_favourites, staff_limit)
-        graph = self._build_graph(session, role_filters, allowed_staff_ids)
+        graph = self._build_graph(session, role_filters, allowed_staff_ids, anime_ids={source_id, target_id})
         source_node = f"anime:{source_id}"
         target_node = f"anime:{target_id}"
         if source_node not in graph or target_node not in graph:
@@ -181,9 +181,14 @@ class GraphService:
         session: Session,
         role_filters: list[str] | None,
         allowed_staff_ids: set[int] | None = None,
+        anime_ids: set[int] | None = None,
     ) -> nx.Graph:
         graph = nx.Graph()
-        for anime in session.exec(select(Anime)).all():
+        scoped_anime_ids = list(anime_ids) if anime_ids is not None else None
+        anime_query = select(Anime)
+        if scoped_anime_ids is not None:
+            anime_query = anime_query.where(Anime.id.in_(scoped_anime_ids))
+        for anime in session.exec(anime_query).all():
             graph.add_node(
                 f"anime:{anime.id}",
                 type="anime",
@@ -204,7 +209,10 @@ class GraphService:
         for studio in session.exec(select(Studio)).all():
             graph.add_node(f"studio:{studio.id}", type="studio", label=studio.name)
 
-        for rel in session.exec(select(AnimeStaffRole)).all():
+        staff_role_query = select(AnimeStaffRole)
+        if scoped_anime_ids is not None:
+            staff_role_query = staff_role_query.where(AnimeStaffRole.anime_id.in_(scoped_anime_ids))
+        for rel in session.exec(staff_role_query).all():
             if not role_is_included(rel.role_category, rel.role, role_filters):
                 continue
             if allowed_staff_ids is not None and rel.staff_id not in allowed_staff_ids:
@@ -234,7 +242,10 @@ class GraphService:
                     distance=distance,
                 )
         normalized_filters = normalize_role_filters(role_filters)
-        for rel in session.exec(select(AnimeStudio)).all():
+        studio_query = select(AnimeStudio)
+        if scoped_anime_ids is not None:
+            studio_query = studio_query.where(AnimeStudio.anime_id.in_(scoped_anime_ids))
+        for rel in session.exec(studio_query).all():
             if normalized_filters and "studio" not in normalized_filters:
                 continue
             anime_node = f"anime:{rel.anime_id}"

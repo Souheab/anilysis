@@ -180,6 +180,19 @@ def test_cytoscape_graph_returns_highlighted_path(session: Session):
     assert any(edge.classes == "highlighted" for edge in graph.edges)
 
 
+def test_cytoscape_graph_only_includes_compared_anime(session: Session):
+    seed_compare_data(session)
+
+    graph = GraphService().cytoscape_graph(session, 1, 2, [], max_depth=2)
+
+    anime_node_ids = {node.data["id"] for node in graph.nodes if node.data["type"] == "anime"}
+    assert anime_node_ids == {"anime:1", "anime:2"}
+    assert all(
+        edge.data["source"] in anime_node_ids or edge.data["target"] in anime_node_ids
+        for edge in graph.edges
+    )
+
+
 def test_node_detail_enriches_staff_connections(session: Session):
     seed_compare_data(session)
 
