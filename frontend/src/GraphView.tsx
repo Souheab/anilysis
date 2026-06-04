@@ -169,10 +169,16 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
           },
         },
         {
-          selector: '.highlighted',
+          selector: 'node.highlighted',
           style: {
             'border-color': '#ffd400',
             'border-width': 4,
+            'z-index': 20,
+          },
+        },
+        {
+          selector: 'edge.highlighted',
+          style: {
             'line-color': '#ffd400',
             'target-arrow-color': '#ffd400',
             'line-opacity': 1,
