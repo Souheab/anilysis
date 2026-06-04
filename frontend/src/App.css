@@ -1217,6 +1217,31 @@ button {
   font-size: 13px;
 }
 
+.filter-template-control {
+  display: grid;
+  gap: 6px;
+  padding-bottom: 4px;
+}
+
+.filter-template-control span {
+  color: #f8fafc;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.filter-template-control select {
+  min-height: 36px;
+  min-width: 0;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 6px;
+  outline: 0;
+  background: rgba(15, 23, 42, 0.56);
+  color: #f8fafc;
+  font: inherit;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
 .misc-section {
   display: grid;
   gap: 8px;

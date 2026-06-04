@@ -68,6 +68,7 @@ const SETTINGS_STORAGE_KEY = 'anime-six-degrees.settings.v1'
 const RECENT_COMPARISON_LIMIT = 10
 const ALL_ROLE_IDS = ROLE_FILTERS.map((filter) => filter.id)
 const DEFAULT_NODE_TYPES = { anime: true, staff: true, voiceActor: true, studio: true }
+const VOICE_ACTOR_NODE_TYPES = { ...DEFAULT_NODE_TYPES, staff: false }
 const DEFAULT_SHOW_ONLY_MAIN_STUDIO_EDGES = true
 const DEFAULT_EDGE_FILTER_REGEX = ''
 const DEFAULT_WHEEL_SENSITIVITY = 0.16
@@ -86,9 +87,14 @@ const STAFF_LIMIT_OPTIONS = [
   { label: 'Top 80', value: 80 },
   { label: 'All staff', value: null },
 ]
+const FILTER_TEMPLATES = [
+  { id: 'default', label: 'Default', nodeTypes: DEFAULT_NODE_TYPES },
+  { id: 'voiceActors', label: 'Voice Actors', nodeTypes: VOICE_ACTOR_NODE_TYPES },
+] as const
 
 type NodeTypeId = (typeof NODE_TYPE_FILTERS)[number]['id']
 type VisibleNodeTypes = Record<NodeTypeId, boolean>
+type FilterTemplateId = (typeof FILTER_TEMPLATES)[number]['id']
 type FilterSectionId = 'roles' | 'nodes' | 'edges' | 'favourites' | 'graph'
 type FilterSectionState = Record<FilterSectionId, boolean>
 type ResizePanel = 'left' | 'right'
@@ -134,6 +140,10 @@ function primaryCharacter(actor: SharedVoiceActor) {
 function nodeTypeLabel(type: NodeDetail['type']) {
   if (type === 'voiceActor') return 'Voice Actor'
   return type
+}
+
+function nodeTypesMatch(left: VisibleNodeTypes, right: VisibleNodeTypes) {
+  return NODE_TYPE_FILTERS.every((filter) => left[filter.id] === right[filter.id])
 }
 
 function initialFilterSections(): FilterSectionState {
@@ -872,16 +882,21 @@ function App() {
     }
   }
 
-  const resetFilters = () => {
+  const applyFilterTemplate = (templateId: FilterTemplateId = 'default') => {
+    const template = FILTER_TEMPLATES.find((item) => item.id === templateId) ?? FILTER_TEMPLATES[0]
     setActiveFilters(ALL_ROLE_IDS)
     setRoleFiltersEnabled(true)
-    setVisibleNodeTypes(DEFAULT_NODE_TYPES)
+    setVisibleNodeTypes({ ...template.nodeTypes })
     setNodeTypeFiltersEnabled(true)
     setShowOnlyMainStudioEdges(DEFAULT_SHOW_ONLY_MAIN_STUDIO_EDGES)
     setEdgeFilterRegex(DEFAULT_EDGE_FILTER_REGEX)
     setStaffMinFavourites(DEFAULT_STAFF_POPULARITY_FILTERS.staffMinFavourites)
     setStaffLimit(DEFAULT_STAFF_POPULARITY_FILTERS.staffLimit)
     setShowOnlySharedComparisonNodes(false)
+  }
+
+  const resetFilters = () => {
+    applyFilterTemplate('default')
   }
 
   const selectNode = useCallback(async (nodeId: string) => {
@@ -1029,6 +1044,7 @@ function App() {
             highlightAllPaths={highlightAllPaths}
             sectionState={filterSections}
             onToggleOpen={() => setFiltersOpen((current) => !current)}
+            onApplyTemplate={applyFilterTemplate}
             onToggle={toggleFilter}
             onSetAllRoles={setAllRoleFilters}
             onToggleNodeType={toggleNodeType}
@@ -1719,6 +1735,7 @@ function RoleFilters({
   onHighlightAllPathsChange,
   onSetGraphSettingsActive,
   onToggleSection,
+  onApplyTemplate,
   onReset,
 }: {
   open: boolean
@@ -1753,6 +1770,7 @@ function RoleFilters({
   onHighlightAllPathsChange: (value: boolean) => void
   onSetGraphSettingsActive: (active: boolean) => void
   onToggleSection: (section: FilterSectionId) => void
+  onApplyTemplate: (templateId: FilterTemplateId) => void
   onReset: () => void
 }) {
   const counts = useMemo(() => {
@@ -1792,6 +1810,8 @@ function RoleFilters({
   const edgeFilterRegexInvalid = regexEdgeFilterActive && !compileEdgeFilterRegex(edgeFilterRegex)
   const staffPopularityActive = staffMinFavourites > 0 || staffLimit !== null
   const graphSettingsActive = showEdgeLabels || hideIsolatedNodes || showOnlySharedComparisonNodes
+  const selectedTemplateId: FilterTemplateId =
+    nodeTypeFiltersEnabled && nodeTypesMatch(visibleNodeTypes, VOICE_ACTOR_NODE_TYPES) ? 'voiceActors' : 'default'
 
   return (
     <section className={`filter-section ${open ? 'open' : ''}`}>
@@ -1804,6 +1824,18 @@ function RoleFilters({
       </div>
       {open ? (
         <>
+          <label className="filter-template-control" htmlFor="filter-template">
+            <span>Filter template</span>
+            <select
+              id="filter-template"
+              value={selectedTemplateId}
+              onChange={(event) => onApplyTemplate(event.target.value as FilterTemplateId)}
+            >
+              {FILTER_TEMPLATES.map((template) => (
+                <option key={template.id} value={template.id}>{template.label}</option>
+              ))}
+            </select>
+          </label>
 
           <FilterAccordionSection
         id="roles"
