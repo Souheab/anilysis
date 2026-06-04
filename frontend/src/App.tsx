@@ -60,6 +60,9 @@ const FILTER_SECTION_STORAGE_KEY = 'anime-six-degrees.filterSections.v1'
 const ALL_ROLE_IDS = ROLE_FILTERS.map((filter) => filter.id)
 const NO_ROLE_FILTERS_SENTINEL = '__none__'
 const DEFAULT_NODE_TYPES = { anime: true, staff: true, studio: true }
+const MAIN_STUDIO_EDGE_FILTER_REGEX = '^Studio$'
+const DEFAULT_SHOW_ONLY_MAIN_STUDIO_EDGES = true
+const DEFAULT_EDGE_FILTER_REGEX = regexFromEdgeTypeToggles(DEFAULT_SHOW_ONLY_MAIN_STUDIO_EDGES)
 const STAFF_LIMIT_OPTIONS = [
   { label: 'Top 10', value: 10 },
   { label: 'Top 20', value: 20 },
@@ -70,7 +73,7 @@ const STAFF_LIMIT_OPTIONS = [
 
 type NodeTypeId = (typeof NODE_TYPE_FILTERS)[number]['id']
 type VisibleNodeTypes = Record<NodeTypeId, boolean>
-type FilterSectionId = 'roles' | 'nodes' | 'favourites' | 'graph'
+type FilterSectionId = 'roles' | 'nodes' | 'edges' | 'favourites' | 'graph'
 type FilterSectionState = Record<FilterSectionId, boolean>
 
 function titleFor(anime: AnimeSearchResult) {
@@ -104,7 +107,7 @@ function primaryRole(staff: SharedStaff) {
 }
 
 function initialFilterSections(): FilterSectionState {
-  const fallback = { roles: false, nodes: false, favourites: false, graph: false }
+  const fallback = { roles: false, nodes: false, edges: false, favourites: false, graph: false }
   if (typeof window === 'undefined') {
     return fallback
   }
@@ -117,6 +120,7 @@ function initialFilterSections(): FilterSectionState {
     return {
       roles: parsed.roles === true,
       nodes: parsed.nodes === true,
+      edges: parsed.edges === true,
       favourites: parsed.favourites === true,
       graph: parsed.graph === true,
     }
@@ -125,10 +129,47 @@ function initialFilterSections(): FilterSectionState {
   }
 }
 
+function regexFromEdgeTypeToggles(showOnlyMainStudio: boolean) {
+  return showOnlyMainStudio ? MAIN_STUDIO_EDGE_FILTER_REGEX : ''
+}
+
+function compileEdgeFilterRegex(pattern: string) {
+  const trimmed = pattern.trim()
+  if (!trimmed) {
+    return null
+  }
+  try {
+    return new RegExp(trimmed, 'i')
+  } catch {
+    return null
+  }
+}
+
+function edgeFilterTargets(edge: GraphResponse['edges'][number]) {
+  const values: string[] = []
+  const addValue = (value: unknown) => {
+    if (typeof value === 'string' && value.trim()) {
+      values.push(value)
+    } else if (Array.isArray(value)) {
+      for (const item of value) {
+        addValue(item)
+      }
+    }
+  }
+
+  addValue(edge.data.label)
+  addValue(edge.data.type)
+  addValue(edge.data.roles)
+  addValue(edge.data.roleCategories)
+  addValue(edge.classes)
+  return values
+}
+
 function filterGraph(
   graph: GraphResponse | null,
   visibleNodeTypes: VisibleNodeTypes,
   hideIsolatedNodes: boolean,
+  edgeFilterRegex: string,
 ): GraphResponse | null {
   if (!graph) {
     return null
@@ -143,10 +184,15 @@ function filterGraph(
 
   let nodes = graph.nodes.filter((node) => typeVisible(node.data.type))
   let visibleNodeIds = new Set(nodes.map((node) => String(node.data.id)))
+  const edgeFilter = compileEdgeFilterRegex(edgeFilterRegex)
   let edges = graph.edges.filter((edge) => {
     const source = edge.data.source
     const target = edge.data.target
-    return typeof source === 'string' && typeof target === 'string' && visibleNodeIds.has(source) && visibleNodeIds.has(target)
+    const visible = typeof source === 'string' && typeof target === 'string' && visibleNodeIds.has(source) && visibleNodeIds.has(target)
+    if (!visible) {
+      return false
+    }
+    return !edgeFilter || !edgeFilterTargets(edge).some((value) => edgeFilter.test(value))
   })
 
   if (hideIsolatedNodes) {
@@ -174,6 +220,9 @@ function App() {
   const [activeSlot, setActiveSlot] = useState<1 | 2>(1)
   const [activeFilters, setActiveFilters] = useState(() => ALL_ROLE_IDS)
   const [visibleNodeTypes, setVisibleNodeTypes] = useState<VisibleNodeTypes>(DEFAULT_NODE_TYPES)
+  const [showOnlyMainStudioEdges, setShowOnlyMainStudioEdges] = useState(DEFAULT_SHOW_ONLY_MAIN_STUDIO_EDGES)
+  const [editEdgeFilterRegex, setEditEdgeFilterRegex] = useState(false)
+  const [edgeFilterRegex, setEdgeFilterRegex] = useState(DEFAULT_EDGE_FILTER_REGEX)
   const [staffMinFavourites, setStaffMinFavourites] = useState(DEFAULT_STAFF_POPULARITY_FILTERS.staffMinFavourites)
   const [staffLimit, setStaffLimit] = useState<number | null>(DEFAULT_STAFF_POPULARITY_FILTERS.staffLimit)
   const [showEdgeLabels, setShowEdgeLabels] = useState(true)
@@ -189,7 +238,10 @@ function App() {
 
   const apiFilters = useMemo(() => filtersForApi(activeFilters), [activeFilters])
   const popularityFilters = useMemo(() => ({ staffMinFavourites, staffLimit }), [staffLimit, staffMinFavourites])
-  const displayGraph = useMemo(() => filterGraph(graph, visibleNodeTypes, hideIsolatedNodes), [graph, hideIsolatedNodes, visibleNodeTypes])
+  const displayGraph = useMemo(
+    () => filterGraph(graph, visibleNodeTypes, hideIsolatedNodes, edgeFilterRegex),
+    [edgeFilterRegex, graph, hideIsolatedNodes, visibleNodeTypes],
+  )
   const canCompare = Boolean(sourceAnime && targetAnime && sourceAnime.id !== targetAnime.id)
   const duplicateSelection = Boolean(sourceAnime && targetAnime && sourceAnime.id === targetAnime.id)
 
@@ -316,6 +368,18 @@ function App() {
     setVisibleNodeTypes({ anime: active, staff: active, studio: active })
   }
 
+  const setShowOnlyMainStudioEdgesFilter = (active: boolean) => {
+    setShowOnlyMainStudioEdges(active)
+    setEdgeFilterRegex(regexFromEdgeTypeToggles(active))
+  }
+
+  const setEditEdgeFilterRegexActive = (active: boolean) => {
+    setEditEdgeFilterRegex(active)
+    if (!active) {
+      setEdgeFilterRegex(regexFromEdgeTypeToggles(showOnlyMainStudioEdges))
+    }
+  }
+
   const setFilterSectionOpen = (section: FilterSectionId) => {
     setFilterSections((current) => ({ ...current, [section]: !current[section] }))
   }
@@ -335,8 +399,16 @@ function App() {
     setHideIsolatedNodes(active)
   }
 
+  const setEdgeTypeFiltersActive = (active: boolean) => {
+    setShowOnlyMainStudioEdges(active)
+    setEdgeFilterRegex(active ? DEFAULT_EDGE_FILTER_REGEX : '')
+  }
+
   const resetFilters = () => {
     setActiveFilters(ALL_ROLE_IDS)
+    setShowOnlyMainStudioEdges(DEFAULT_SHOW_ONLY_MAIN_STUDIO_EDGES)
+    setEditEdgeFilterRegex(false)
+    setEdgeFilterRegex(DEFAULT_EDGE_FILTER_REGEX)
     setStaffMinFavourites(DEFAULT_STAFF_POPULARITY_FILTERS.staffMinFavourites)
     setStaffLimit(DEFAULT_STAFF_POPULARITY_FILTERS.staffLimit)
   }
@@ -419,6 +491,9 @@ function App() {
             comparison={comparison}
             graph={graph}
             visibleNodeTypes={visibleNodeTypes}
+            showOnlyMainStudioEdges={showOnlyMainStudioEdges}
+            editEdgeFilterRegex={editEdgeFilterRegex}
+            edgeFilterRegex={edgeFilterRegex}
             staffMinFavourites={staffMinFavourites}
             staffLimit={staffLimit}
             showEdgeLabels={showEdgeLabels}
@@ -428,9 +503,13 @@ function App() {
             onSetAllRoles={setAllRoleFilters}
             onToggleNodeType={toggleNodeType}
             onSetAllNodeTypes={setAllNodeTypes}
+            onShowOnlyMainStudioEdgesChange={setShowOnlyMainStudioEdgesFilter}
+            onEditEdgeFilterRegexChange={setEditEdgeFilterRegexActive}
+            onEdgeFilterRegexChange={setEdgeFilterRegex}
             onMinFavouritesChange={setStaffMinFavourites}
             onStaffLimitChange={setStaffLimit}
             onSetPopularityFiltersActive={setPopularityFiltersActive}
+            onSetEdgeTypeFiltersActive={setEdgeTypeFiltersActive}
             onShowEdgeLabelsChange={setShowEdgeLabels}
             onHideIsolatedNodesChange={setHideIsolatedNodes}
             onSetGraphSettingsActive={setGraphSettingsActive}
@@ -784,6 +863,9 @@ function RoleFilters({
   comparison,
   graph,
   visibleNodeTypes,
+  showOnlyMainStudioEdges,
+  editEdgeFilterRegex,
+  edgeFilterRegex,
   staffMinFavourites,
   staffLimit,
   showEdgeLabels,
@@ -793,8 +875,12 @@ function RoleFilters({
   onSetAllRoles,
   onToggleNodeType,
   onSetAllNodeTypes,
+  onShowOnlyMainStudioEdgesChange,
+  onEditEdgeFilterRegexChange,
+  onEdgeFilterRegexChange,
   onMinFavouritesChange,
   onStaffLimitChange,
+  onSetEdgeTypeFiltersActive,
   onSetPopularityFiltersActive,
   onShowEdgeLabelsChange,
   onHideIsolatedNodesChange,
@@ -806,6 +892,9 @@ function RoleFilters({
   comparison: CompareResponse | null
   graph: GraphResponse | null
   visibleNodeTypes: VisibleNodeTypes
+  showOnlyMainStudioEdges: boolean
+  editEdgeFilterRegex: boolean
+  edgeFilterRegex: string
   staffMinFavourites: number
   staffLimit: number | null
   showEdgeLabels: boolean
@@ -815,8 +904,12 @@ function RoleFilters({
   onSetAllRoles: (active: boolean) => void
   onToggleNodeType: (id: NodeTypeId) => void
   onSetAllNodeTypes: (active: boolean) => void
+  onShowOnlyMainStudioEdgesChange: (value: boolean) => void
+  onEditEdgeFilterRegexChange: (value: boolean) => void
+  onEdgeFilterRegexChange: (value: string) => void
   onMinFavouritesChange: (value: number) => void
   onStaffLimitChange: (value: number | null) => void
+  onSetEdgeTypeFiltersActive: (active: boolean) => void
   onSetPopularityFiltersActive: (active: boolean) => void
   onShowEdgeLabelsChange: (value: boolean) => void
   onHideIsolatedNodesChange: (value: boolean) => void
@@ -853,6 +946,8 @@ function RoleFilters({
   }, [graph])
   const rolesActive = activeFilters.length > 0
   const nodeTypesActive = Object.values(visibleNodeTypes).some(Boolean)
+  const edgeTypeFiltersActive = edgeFilterRegex.trim().length > 0
+  const edgeFilterRegexInvalid = edgeTypeFiltersActive && !compileEdgeFilterRegex(edgeFilterRegex)
   const staffPopularityActive = staffMinFavourites > 0 || staffLimit !== null
   const graphSettingsActive = showEdgeLabels || hideIsolatedNodes
 
@@ -913,6 +1008,59 @@ function RoleFilters({
               </button>
             )
           })}
+        </div>
+      </FilterAccordionSection>
+
+      <FilterAccordionSection
+        id="edges"
+        title="Filter by Edge Type"
+        subtitle="Hide edges that match a regex"
+        icon={<CircleDotDashed size={18} />}
+        iconTone="green"
+        open={sectionState.edges}
+        active={edgeTypeFiltersActive}
+        onToggleOpen={onToggleSection}
+        onToggleActive={() => onSetEdgeTypeFiltersActive(!edgeTypeFiltersActive)}
+      >
+        <div className="edge-filter-controls">
+          <div className={`filter-list ${editEdgeFilterRegex ? 'disabled' : ''}`}>
+            <button
+              type="button"
+              className="filter-row graph-setting-row"
+              disabled={editEdgeFilterRegex}
+              onClick={() => onShowOnlyMainStudioEdgesChange(!showOnlyMainStudioEdges)}
+            >
+              <Building2 size={14} />
+              <span>
+                <strong>Show only main studio</strong>
+                <em>Filters out studio edges labeled Studio</em>
+              </span>
+              <span className={`switch ${showOnlyMainStudioEdges ? 'on' : ''}`} aria-hidden="true" />
+            </button>
+          </div>
+
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={editEdgeFilterRegex}
+              onChange={(event) => onEditEdgeFilterRegexChange(event.target.checked)}
+            />
+            <span>Edit regex directly</span>
+          </label>
+
+          <label className="regex-control" htmlFor="edge-filter-regex">
+            <span>Filtered edge regex</span>
+            <input
+              id="edge-filter-regex"
+              type="text"
+              value={edgeFilterRegex}
+              readOnly={!editEdgeFilterRegex}
+              disabled={!editEdgeFilterRegex}
+              placeholder="No edge filter"
+              onChange={(event) => onEdgeFilterRegexChange(event.target.value)}
+            />
+          </label>
+          {edgeFilterRegexInvalid ? <p className="filter-warning">Invalid regex. No edge type regex filter is applied.</p> : null}
         </div>
       </FilterAccordionSection>
 

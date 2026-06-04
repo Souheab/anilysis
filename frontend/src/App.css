@@ -935,6 +935,10 @@ button {
   gap: 2px;
 }
 
+.filter-list.disabled {
+  opacity: 0.45;
+}
+
 .filter-row {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr) 42px 34px;
@@ -955,6 +959,14 @@ button {
 .filter-collapse:hover,
 .switch-button:hover {
   background: rgba(148, 163, 184, 0.1);
+}
+
+.filter-row:disabled {
+  cursor: not-allowed;
+}
+
+.filter-row:disabled:hover {
+  background: transparent;
 }
 
 .filter-row span:nth-child(2) {
@@ -1005,6 +1017,62 @@ button {
 .popularity-controls {
   display: grid;
   gap: 12px;
+}
+
+.edge-filter-controls {
+  display: grid;
+  gap: 10px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  color: #f8fafc;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.checkbox-row input {
+  accent-color: #38a9ff;
+}
+
+.regex-control {
+  display: grid;
+  gap: 6px;
+}
+
+.regex-control span {
+  color: #f8fafc;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.regex-control input {
+  min-height: 36px;
+  min-width: 0;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 6px;
+  outline: 0;
+  background: rgba(15, 23, 42, 0.56);
+  color: #f8fafc;
+  font: inherit;
+  padding: 0 10px;
+}
+
+.regex-control input:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.filter-warning {
+  margin: 0;
+  color: #fca5a5;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .popularity-control {
