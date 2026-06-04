@@ -952,6 +952,14 @@ function ConnectionScore({
 }
 
 function TopSharedStaff({ items, onSelect }: { items: SharedStaff[]; onSelect: (staff: SharedStaff) => void }) {
+  const [expanded, setExpanded] = useState(false)
+  const visibleItems = expanded ? items : items.slice(0, 5)
+  const hasFullList = items.length > 5
+
+  useEffect(() => {
+    setExpanded(false)
+  }, [items])
+
   return (
     <section className="staff-card">
       <div className="section-title">
@@ -960,7 +968,7 @@ function TopSharedStaff({ items, onSelect }: { items: SharedStaff[]; onSelect: (
       </div>
       <div className="staff-list">
         {items.length === 0 ? <p className="muted">No shared staff under the active filters.</p> : null}
-        {items.slice(0, 5).map((staff, index) => (
+        {visibleItems.map((staff, index) => (
           <button key={staff.staffId} type="button" className="staff-row" onClick={() => onSelect(staff)}>
             <span className="rank">{index + 1}</span>
             <span className="staff-name">{staff.name}</span>
@@ -969,7 +977,17 @@ function TopSharedStaff({ items, onSelect }: { items: SharedStaff[]; onSelect: (
           </button>
         ))}
       </div>
-      <button type="button" className="full-list-button">View full shared staff list <span>→</span></button>
+      {hasFullList ? (
+        <button
+          type="button"
+          className="full-list-button"
+          onClick={() => setExpanded((current) => !current)}
+          aria-expanded={expanded}
+        >
+          {expanded ? 'Show top shared staff' : `View full shared staff list (${items.length})`}
+          <ChevronDown size={16} aria-hidden="true" />
+        </button>
+      ) : null}
     </section>
   )
 }
