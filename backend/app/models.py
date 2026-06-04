@@ -25,6 +25,7 @@ class Anime(SQLModel, table=True):
     favourites: int | None = None
     staff_fetched_at: datetime | None = None
     studios_fetched_at: datetime | None = None
+    voice_cast_fetched_at: datetime | None = None
     updated_at: datetime = Field(default_factory=utc_now)
 
 
@@ -46,6 +47,16 @@ class Studio(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utc_now)
 
 
+class VoiceActor(SQLModel, table=True):
+    id: int = Field(primary_key=True)
+    name_full: str
+    name_native: str | None = None
+    image_url: str | None = None
+    site_url: str | None = None
+    favourites: int | None = None
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 class AnimeStaffRole(SQLModel, table=True):
     anime_id: int = Field(foreign_key="anime.id", primary_key=True)
     staff_id: int = Field(foreign_key="staff.id", primary_key=True)
@@ -60,4 +71,14 @@ class AnimeStudio(SQLModel, table=True):
     studio_id: int = Field(foreign_key="studio.id", primary_key=True)
     is_main: bool = False
     weight: float = 3.5
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class AnimeVoiceActorRole(SQLModel, table=True):
+    anime_id: int = Field(foreign_key="anime.id", primary_key=True)
+    voice_actor_id: int = Field(foreign_key="voiceactor.id", primary_key=True)
+    character_name: str = Field(primary_key=True)
+    character_image_url: str | None = None
+    role_category: str = "voice_actor"
+    weight: float = 3.0
     updated_at: datetime = Field(default_factory=utc_now)

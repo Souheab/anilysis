@@ -746,6 +746,14 @@ button {
   background: #ff7a00;
 }
 
+.legend-voice-actor {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #f0abfc;
+  border-radius: 999px;
+  background: #d946ef;
+}
+
 .legend-studio {
   width: 22px;
   height: 18px;
@@ -819,6 +827,20 @@ button {
 .node-avatar.studio {
   border-radius: 8px;
   background: #31823d;
+}
+
+.node-avatar.voiceActor {
+  background: #d946ef;
+}
+
+.voice-rank {
+  background: #d946ef;
+}
+
+.voice-pill {
+  border-color: rgba(217, 70, 239, 0.42);
+  background: rgba(217, 70, 239, 0.16);
+  color: #f5d0fe;
 }
 
 .node-identity h3 {

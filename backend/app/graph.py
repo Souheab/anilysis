@@ -8,7 +8,7 @@ import networkx as nx
 from sqlmodel import Session, select
 
 from app.cache import anime_to_detail, included_staff_roles
-from app.models import Anime, AnimeStaffRole, AnimeStudio, Staff, Studio
+from app.models import Anime, AnimeStaffRole, AnimeStudio, AnimeVoiceActorRole, Staff, Studio, VoiceActor
 from app.schemas import (
     AnimeSearchResult,
     ConnectionCounts,
@@ -22,6 +22,7 @@ from app.schemas import (
     ScoreBreakdown,
     SharedStaff,
     SharedStudio,
+    SharedVoiceActor,
 )
 from app.scoring import normalize_role_filters, path_bonus, popularity_multiplier, role_is_included
 
@@ -41,15 +42,17 @@ class GraphService:
         allowed_staff_ids = self._allowed_staff_ids(session, staff_min_favourites, staff_limit)
         shared_staff = self._shared_staff(session, source_id, target_id, role_filters, allowed_staff_ids)
         shared_studios = self._shared_studios(session, source_id, target_id, role_filters)
+        shared_voice_actors = self._shared_voice_actors(session, source_id, target_id)
         graph = self._build_graph(session, role_filters, allowed_staff_ids, anime_ids={source_id, target_id})
         path = self._shortest_path(graph, f"anime:{source_id}", f"anime:{target_id}")
-        breakdown = self._score_breakdown(shared_staff, shared_studios, len(path))
+        breakdown = self._score_breakdown(shared_staff, shared_studios, shared_voice_actors, len(path))
         score = min(100.0, sum(breakdown.model_dump().values()))
         return CompareResponse(
             sourceAnime=anime_to_detail(source),
             targetAnime=anime_to_detail(target),
             sharedStaff=shared_staff,
             sharedStudios=shared_studios,
+            sharedVoiceActors=shared_voice_actors,
             score=round(score, 2),
             scoreBreakdown=breakdown,
             shortestPath=[self._path_node(graph, node_id) for node_id in path],
@@ -114,6 +117,7 @@ class GraphService:
             anime = self._get_anime(session, node_id)
             staff_roles = session.exec(select(AnimeStaffRole).where(AnimeStaffRole.anime_id == node_id)).all()
             studio_roles = session.exec(select(AnimeStudio).where(AnimeStudio.anime_id == node_id)).all()
+            voice_actor_roles = session.exec(select(AnimeVoiceActorRole).where(AnimeVoiceActorRole.anime_id == node_id)).all()
             return NodeDetail(
                 id=anime.id,
                 type="anime",
@@ -127,7 +131,8 @@ class GraphService:
                 connectionCounts=ConnectionCounts(
                     staff=len({role.staff_id for role in staff_roles}),
                     studios=len({role.studio_id for role in studio_roles}),
-                    roles=len(staff_roles) + len(studio_roles),
+                    voiceActors=len({role.voice_actor_id for role in voice_actor_roles}),
+                    roles=len(staff_roles) + len(studio_roles) + len(voice_actor_roles),
                 ),
             )
         if node_type == "staff":
@@ -174,7 +179,30 @@ class GraphService:
                     roles=len(studio_roles),
                 ),
             )
-        raise HTTPException(status_code=400, detail="Node type must be anime, staff, or studio")
+        if node_type == "voiceActor":
+            voice_actor = session.get(VoiceActor, node_id)
+            if not voice_actor:
+                raise HTTPException(status_code=404, detail=f"Voice actor {node_id} is not cached")
+            voice_roles = session.exec(select(AnimeVoiceActorRole).where(AnimeVoiceActorRole.voice_actor_id == node_id)).all()
+            related_connections = self._voice_actor_related_connections(session, voice_roles)
+            return NodeDetail(
+                id=voice_actor.id,
+                type="voiceActor",
+                label=voice_actor.name_full,
+                imageUrl=voice_actor.image_url,
+                siteUrl=voice_actor.site_url,
+                favourites=voice_actor.favourites,
+                metadata={"nameNative": voice_actor.name_native, "favourites": voice_actor.favourites},
+                relatedAnime=[self._connection_to_search_result(item) for item in related_connections],
+                topRoles=self._top_voice_actor_roles(voice_roles),
+                relatedConnections=related_connections,
+                connectionCounts=ConnectionCounts(
+                    anime=len(related_connections),
+                    voiceActors=1,
+                    roles=len(voice_roles),
+                ),
+            )
+        raise HTTPException(status_code=400, detail="Node type must be anime, staff, studio, or voiceActor")
 
     def _build_graph(
         self,
@@ -208,6 +236,14 @@ class GraphService:
             )
         for studio in session.exec(select(Studio)).all():
             graph.add_node(f"studio:{studio.id}", type="studio", label=studio.name)
+        for voice_actor in session.exec(select(VoiceActor)).all():
+            graph.add_node(
+                f"voice_actor:{voice_actor.id}",
+                type="voiceActor",
+                label=voice_actor.name_full,
+                imageUrl=voice_actor.image_url,
+                favourites=voice_actor.favourites,
+            )
 
         staff_role_query = select(AnimeStaffRole)
         if scoped_anime_ids is not None:
@@ -264,6 +300,34 @@ class GraphService:
                 weight=rel.weight,
                 distance=max(0.3, 5.5 - rel.weight),
             )
+        voice_actor_query = select(AnimeVoiceActorRole)
+        if scoped_anime_ids is not None:
+            voice_actor_query = voice_actor_query.where(AnimeVoiceActorRole.anime_id.in_(scoped_anime_ids))
+        for rel in session.exec(voice_actor_query).all():
+            anime_node = f"anime:{rel.anime_id}"
+            voice_actor_node = f"voice_actor:{rel.voice_actor_id}"
+            if anime_node not in graph or voice_actor_node not in graph:
+                continue
+            edge_id = self._edge_id(anime_node, voice_actor_node)
+            distance = max(0.4, 6.0 - rel.weight)
+            if graph.has_edge(anime_node, voice_actor_node):
+                edge = graph.edges[anime_node, voice_actor_node]
+                edge["label"] = f"{edge['label']}, {rel.character_name}"
+                edge["roles"].append(rel.character_name)
+                edge["weight"] = max(edge["weight"], rel.weight)
+                edge["distance"] = min(edge["distance"], distance)
+            else:
+                graph.add_edge(
+                    anime_node,
+                    voice_actor_node,
+                    id=edge_id,
+                    label=rel.character_name,
+                    type="voice_actor",
+                    roles=[rel.character_name],
+                    roleCategories=[rel.role_category],
+                    weight=rel.weight,
+                    distance=distance,
+                )
         return graph
 
     def _shared_staff(
@@ -337,24 +401,57 @@ class GraphService:
         ]
         return sorted(results, key=lambda item: item.weight, reverse=True)
 
+    def _shared_voice_actors(self, session: Session, source_id: int, target_id: int) -> list[SharedVoiceActor]:
+        source_roles = self._roles_by_voice_actor(session.exec(select(AnimeVoiceActorRole).where(AnimeVoiceActorRole.anime_id == source_id)).all())
+        target_roles = self._roles_by_voice_actor(session.exec(select(AnimeVoiceActorRole).where(AnimeVoiceActorRole.anime_id == target_id)).all())
+        shared_ids = set(source_roles) & set(target_roles)
+        actors = {actor.id: actor for actor in session.exec(select(VoiceActor).where(VoiceActor.id.in_(shared_ids))).all()} if shared_ids else {}
+        results: list[SharedVoiceActor] = []
+        for actor_id in shared_ids:
+            actor = actors[actor_id]
+            all_roles = source_roles[actor_id] + target_roles[actor_id]
+            weight = max(role.weight for role in all_roles) * popularity_multiplier(actor.favourites)
+            results.append(
+                SharedVoiceActor(
+                    voiceActorId=actor_id,
+                    name=actor.name_full,
+                    imageUrl=actor.image_url,
+                    favourites=actor.favourites,
+                    sourceCharacters=sorted({role.character_name for role in source_roles[actor_id]}),
+                    targetCharacters=sorted({role.character_name for role in target_roles[actor_id]}),
+                    roleCategories=sorted({role.role_category for role in all_roles}),
+                    weight=round(weight, 2),
+                )
+            )
+        return sorted(results, key=lambda item: item.weight, reverse=True)
+
     def _roles_by_staff(self, roles: list[AnimeStaffRole]) -> dict[int, list[AnimeStaffRole]]:
         grouped: dict[int, list[AnimeStaffRole]] = defaultdict(list)
         for role in roles:
             grouped[role.staff_id].append(role)
         return grouped
 
+    def _roles_by_voice_actor(self, roles: list[AnimeVoiceActorRole]) -> dict[int, list[AnimeVoiceActorRole]]:
+        grouped: dict[int, list[AnimeVoiceActorRole]] = defaultdict(list)
+        for role in roles:
+            grouped[role.voice_actor_id].append(role)
+        return grouped
+
     def _score_breakdown(
         self,
         shared_staff: list[SharedStaff],
         shared_studios: list[SharedStudio],
+        shared_voice_actors: list[SharedVoiceActor],
         path_length: int,
     ) -> ScoreBreakdown:
         staff_points = sum(item.weight * 5 for item in shared_staff)
         studio_points = sum(item.weight * 4 for item in shared_studios)
-        popularity_points = sum(min(item.favourites or 0, 30_000) / 5_000 for item in shared_staff)
+        voice_actor_points = sum(item.weight * 3 for item in shared_voice_actors)
+        popularity_points = sum(min(item.favourites or 0, 30_000) / 5_000 for item in [*shared_staff, *shared_voice_actors])
         return ScoreBreakdown(
             sharedStaff=round(staff_points, 2),
             sharedStudios=round(studio_points, 2),
+            sharedVoiceActors=round(voice_actor_points, 2),
             popularityBonus=round(popularity_points, 2),
             pathBonus=round(path_bonus(path_length), 2),
         )
@@ -404,6 +501,10 @@ class GraphService:
 
     def _anime_for_studio(self, session: Session, studio_id: int) -> list[AnimeSearchResult]:
         anime_ids = [rel.anime_id for rel in session.exec(select(AnimeStudio).where(AnimeStudio.studio_id == studio_id)).all()]
+        return self._anime_results(session, anime_ids)
+
+    def _anime_for_voice_actor(self, session: Session, voice_actor_id: int) -> list[AnimeSearchResult]:
+        anime_ids = [rel.anime_id for rel in session.exec(select(AnimeVoiceActorRole).where(AnimeVoiceActorRole.voice_actor_id == voice_actor_id)).all()]
         return self._anime_results(session, anime_ids)
 
     def _anime_results(self, session: Session, anime_ids: list[int]) -> list[AnimeSearchResult]:
@@ -461,6 +562,25 @@ class GraphService:
             )
         return sorted(connections, key=lambda item: (item.year or 0, item.titleEnglish or item.titleRomaji), reverse=True)
 
+    def _voice_actor_related_connections(self, session: Session, roles: list[AnimeVoiceActorRole]) -> list[RelatedConnection]:
+        grouped: dict[int, list[AnimeVoiceActorRole]] = defaultdict(list)
+        for role in roles:
+            grouped[role.anime_id].append(role)
+        anime_by_id = {anime.id: anime for anime in self._anime_records(session, list(grouped))}
+        connections: list[RelatedConnection] = []
+        for anime_id, voice_roles in grouped.items():
+            anime = anime_by_id.get(anime_id)
+            if not anime:
+                continue
+            connections.append(
+                RelatedConnection(
+                    **self._anime_result_payload(anime),
+                    roles=sorted({role.character_name for role in voice_roles}),
+                    roleCategories=["voice_actor"],
+                )
+            )
+        return sorted(connections, key=lambda item: (item.year or 0, item.titleEnglish or item.titleRomaji), reverse=True)
+
     def _anime_records(self, session: Session, anime_ids: list[int]) -> list[Anime]:
         if not anime_ids:
             return []
@@ -504,3 +624,10 @@ class GraphService:
         if supporting_count:
             top_roles.append(NodeTopRole(label="Studio", category="studio", count=supporting_count))
         return top_roles
+
+    def _top_voice_actor_roles(self, roles: list[AnimeVoiceActorRole]) -> list[NodeTopRole]:
+        counts: dict[str, int] = defaultdict(int)
+        for role in roles:
+            counts[role.character_name] += 1
+        ranked = sorted(counts.items(), key=lambda item: (item[1], item[0]), reverse=True)
+        return [NodeTopRole(label=label, category="voice_actor", count=count) for label, count in ranked[:6]]

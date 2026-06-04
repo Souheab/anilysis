@@ -12,6 +12,7 @@ import {
   Info,
   Loader2,
   Maximize2,
+  Mic2,
   MousePointer2,
   Network,
   Plus,
@@ -36,6 +37,7 @@ import {
   type GraphResponse,
   type NodeDetail,
   type SharedStaff,
+  type SharedVoiceActor,
 } from './api'
 import { GraphView, type GraphViewHandle } from './GraphView'
 
@@ -53,6 +55,7 @@ const ROLE_FILTERS = [
 const NODE_TYPE_FILTERS = [
   { id: 'anime', label: 'Anime', color: '#1688ff', icon: Film },
   { id: 'staff', label: 'Staff', color: '#ff8a3d', icon: Users },
+  { id: 'voiceActor', label: 'Voice Actors', color: '#d946ef', icon: Mic2 },
   { id: 'studio', label: 'Studio', color: '#65c56f', icon: Building2 },
 ] as const
 
@@ -61,7 +64,7 @@ const RECENT_COMPARISONS_STORAGE_KEY = 'anime-six-degrees.recentComparisons.v1'
 const RECENT_COMPARISON_LIMIT = 10
 const ALL_ROLE_IDS = ROLE_FILTERS.map((filter) => filter.id)
 const NO_ROLE_FILTERS_SENTINEL = '__none__'
-const DEFAULT_NODE_TYPES = { anime: true, staff: true, studio: true }
+const DEFAULT_NODE_TYPES = { anime: true, staff: true, voiceActor: true, studio: true }
 const MAIN_STUDIO_EDGE_FILTER_REGEX = '^Studio$'
 const DEFAULT_SHOW_ONLY_MAIN_STUDIO_EDGES = true
 const DEFAULT_EDGE_FILTER_REGEX = regexFromEdgeTypeToggles(DEFAULT_SHOW_ONLY_MAIN_STUDIO_EDGES)
@@ -111,6 +114,15 @@ function stripHtml(value?: string | null) {
 
 function primaryRole(staff: SharedStaff) {
   return staff.sourceRoles[0] || staff.targetRoles[0] || staff.roleCategories[0] || 'Role'
+}
+
+function primaryCharacter(actor: SharedVoiceActor) {
+  return actor.sourceCharacters[0] || actor.targetCharacters[0] || 'Voice'
+}
+
+function nodeTypeLabel(type: NodeDetail['type']) {
+  if (type === 'voiceActor') return 'Voice Actor'
+  return type
 }
 
 function initialFilterSections(): FilterSectionState {
@@ -235,7 +247,7 @@ function filterGraph(
   }
 
   const typeVisible = (type: unknown) => {
-    if (type !== 'anime' && type !== 'staff' && type !== 'studio') {
+    if (type !== 'anime' && type !== 'staff' && type !== 'studio' && type !== 'voiceActor') {
       return true
     }
     return visibleNodeTypes[type]
@@ -438,7 +450,7 @@ function App() {
   }
 
   const setAllNodeTypes = (active: boolean) => {
-    setVisibleNodeTypes({ anime: active, staff: active, studio: active })
+    setVisibleNodeTypes({ anime: active, staff: active, voiceActor: active, studio: active })
   }
 
   const setShowOnlyMainStudioEdgesFilter = (active: boolean) => {
@@ -492,11 +504,12 @@ function App() {
     if (!type || !Number.isFinite(id)) {
       return
     }
+    const apiType = type === 'voice_actor' ? 'voiceActor' : type
     setSelectedNodeId(nodeId)
     setIsLoadingNode(true)
     setError(null)
     try {
-      setNodeDetail(await fetchNodeDetail(type, id))
+      setNodeDetail(await fetchNodeDetail(apiType, id))
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Could not load node details')
     } finally {
@@ -539,6 +552,7 @@ function App() {
           />
           <ConnectionScore comparison={comparison} loading={isComparing} canCompare={canCompare} />
           <TopSharedStaff items={comparison?.sharedStaff ?? []} onSelect={(staff) => void selectNode(`staff:${staff.staffId}`)} />
+          <TopSharedVoiceActors items={comparison?.sharedVoiceActors ?? []} onSelect={(actor) => void selectNode(`voice_actor:${actor.voiceActorId}`)} />
         </aside>
 
         <section className="graph-panel">
@@ -835,7 +849,7 @@ function ConnectionScore({ comparison, loading, canCompare }: { comparison: Comp
           <div className="score-row">
             <strong>{comparison ? `${score}%` : '--'}</strong>
           </div>
-          <p>{comparison ? 'Shared creative DNA through staff and studio overlap' : canCompare ? 'Comparison will run automatically.' : 'Choose two anime to compare.'}</p>
+          <p>{comparison ? 'Shared creative DNA through staff, cast, and studio overlap' : canCompare ? 'Comparison will run automatically.' : 'Choose two anime to compare.'}</p>
         </>
       )}
     </section>
@@ -861,6 +875,28 @@ function TopSharedStaff({ items, onSelect }: { items: SharedStaff[]; onSelect: (
         ))}
       </div>
       <button type="button" className="full-list-button">View full shared staff list <span>→</span></button>
+    </section>
+  )
+}
+
+function TopSharedVoiceActors({ items, onSelect }: { items: SharedVoiceActor[]; onSelect: (actor: SharedVoiceActor) => void }) {
+  return (
+    <section className="staff-card">
+      <div className="section-title">
+        <h3>Top Shared Voice Actors</h3>
+        <Mic2 size={16} />
+      </div>
+      <div className="staff-list">
+        {items.length === 0 ? <p className="muted">No shared voice actors are cached for this pair.</p> : null}
+        {items.slice(0, 5).map((actor, index) => (
+          <button key={actor.voiceActorId} type="button" className="staff-row" onClick={() => onSelect(actor)}>
+            <span className="rank voice-rank">{index + 1}</span>
+            <span className="staff-name">{actor.name}</span>
+            <span className="role-pill voice-pill">{primaryCharacter(actor)}</span>
+            <span className="heat"><Flame size={14} /> {compactNumber(actor.favourites)}</span>
+          </button>
+        ))}
+      </div>
     </section>
   )
 }
@@ -903,6 +939,7 @@ function GraphLegend() {
       <h3>Legend</h3>
       <span><i className="legend-anime" /> Anime</span>
       <span><i className="legend-staff" /> Staff</span>
+      <span><i className="legend-voice-actor" /> Voice Actor</span>
       <span><i className="legend-studio" /> Studio</span>
       <span><i className="legend-line primary" /> Primary Role</span>
       <span><i className="legend-line dashed" /> Studio / Affiliation</span>
@@ -934,7 +971,7 @@ function NodeDetailContent({ detail }: { detail: NodeDetail }) {
         {detail.imageUrl ? <img src={detail.imageUrl} alt="" /> : <span className={`node-avatar ${detail.type}`}><NodeTypeIcon type={detail.type} /></span>}
         <span>
           <h3>{detail.label}</h3>
-          <small>{detail.type}</small>
+          <small>{nodeTypeLabel(detail.type)}</small>
         </span>
       </div>
       {detail.topRoles.length > 0 ? (
@@ -978,6 +1015,7 @@ function NodeDetailContent({ detail }: { detail: NodeDetail }) {
 function NodeTypeIcon({ type }: { type: NodeDetail['type'] }) {
   if (type === 'anime') return <Film size={22} />
   if (type === 'studio') return <Building2 size={22} />
+  if (type === 'voiceActor') return <Mic2 size={22} />
   return <Users size={22} />
 }
 
@@ -1057,11 +1095,12 @@ function RoleFilters({
     const next = new Map<NodeTypeId, number>([
       ['anime', 0],
       ['staff', 0],
+      ['voiceActor', 0],
       ['studio', 0],
     ])
     for (const node of graph?.nodes ?? []) {
       const type = node.data.type
-      if (type === 'anime' || type === 'staff' || type === 'studio') {
+      if (type === 'anime' || type === 'staff' || type === 'studio' || type === 'voiceActor') {
         next.set(type, (next.get(type) ?? 0) + 1)
       }
     }

@@ -28,6 +28,9 @@ const MINIMAP_ENABLED = false
 const STAFF_ICON = `data:image/svg+xml;utf8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><g fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="24" cy="15" r="6"/><path d="M13 36c1.7-7.4 5.4-11 11-11s9.3 3.6 11 11"/></g></svg>',
 )}`
+const VOICE_ACTOR_ICON = `data:image/svg+xml;utf8,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><g fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 13a5 5 0 0 1 10 0v8a5 5 0 0 1-10 0z"/><path d="M13 21c0 6 4 10 11 10s11-4 11-10"/><path d="M24 31v6"/><path d="M18 37h12"/></g></svg>',
+)}`
 
 export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function GraphView(
   { graph, showEdgeLabels, selectedNodeId, onNodeSelect },
@@ -148,6 +151,26 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
           },
         },
         {
+          selector: 'node[type = "voiceActor"]',
+          style: {
+            shape: 'ellipse',
+            width: 50,
+            height: 50,
+            'background-color': '#c026d3',
+            'border-color': '#f0abfc',
+            'border-width': 2,
+            'background-image': VOICE_ACTOR_ICON,
+            'background-fit': 'none',
+            'background-position-x': '50%',
+            'background-position-y': '50%',
+            'background-width': 48,
+            'background-height': 48,
+            'text-valign': 'bottom',
+            'text-margin-y': 8,
+            'text-max-width': '78px',
+          },
+        },
+        {
           selector: 'node[type = "studio"]',
           style: {
             shape: 'hexagon',
@@ -182,6 +205,13 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
             'line-style': 'dashed',
             'line-color': '#a3a3a3',
             'target-arrow-shape': 'none',
+          },
+        },
+        {
+          selector: 'edge[type = "voice_actor"]',
+          style: {
+            'line-color': '#d946ef',
+            'target-arrow-color': '#d946ef',
           },
         },
         {
@@ -291,7 +321,7 @@ function MiniMap({ nodes, selectedNodeId }: { nodes: MiniNode[]; selectedNodeId:
         {nodes.map((node) => {
           const x = 10 + ((node.x - minX) / width) * 160
           const y = 10 + ((node.y - minY) / height) * 90
-          const fill = node.type === 'anime' ? '#1688ff' : node.type === 'staff' ? '#ff7a00' : '#4caf50'
+          const fill = node.type === 'anime' ? '#1688ff' : node.type === 'staff' ? '#ff7a00' : node.type === 'voiceActor' ? '#d946ef' : '#4caf50'
           return <circle key={node.id} cx={x} cy={y} r={node.id === selectedNodeId ? 4 : 2.5} fill={fill} opacity={node.id === selectedNodeId ? 1 : 0.78} />
         })}
       </svg>

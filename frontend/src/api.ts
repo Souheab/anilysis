@@ -19,6 +19,7 @@ export interface AnimeDetail extends AnimeSearchResult {
   favourites?: number | null
   staffFetchedAt?: string | null
   studiosFetchedAt?: string | null
+  voiceCastFetchedAt?: string | null
   updatedAt?: string | null
 }
 
@@ -41,16 +42,28 @@ export interface SharedStudio {
   weight: number
 }
 
+export interface SharedVoiceActor {
+  voiceActorId: number
+  name: string
+  imageUrl?: string | null
+  favourites?: number | null
+  sourceCharacters: string[]
+  targetCharacters: string[]
+  roleCategories: string[]
+  weight: number
+}
+
 export interface ScoreBreakdown {
   sharedStaff: number
   sharedStudios: number
+  sharedVoiceActors: number
   popularityBonus: number
   pathBonus: number
 }
 
 export interface PathNode {
   id: string
-  type: 'anime' | 'staff' | 'studio'
+  type: 'anime' | 'staff' | 'studio' | 'voiceActor'
   label: string
 }
 
@@ -59,6 +72,7 @@ export interface CompareResponse {
   targetAnime: AnimeDetail
   sharedStaff: SharedStaff[]
   sharedStudios: SharedStudio[]
+  sharedVoiceActors: SharedVoiceActor[]
   score: number
   scoreBreakdown: ScoreBreakdown
   shortestPath: PathNode[]
@@ -101,12 +115,13 @@ export interface ConnectionCounts {
   anime: number
   staff: number
   studios: number
+  voiceActors: number
   roles: number
 }
 
 export interface NodeDetail {
   id: number
-  type: 'anime' | 'staff' | 'studio'
+  type: 'anime' | 'staff' | 'studio' | 'voiceActor'
   label: string
   imageUrl?: string | null
   siteUrl?: string | null

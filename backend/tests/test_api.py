@@ -61,6 +61,20 @@ class ApiFakeAniListClient:
     async def fetch_studios(self, anime_id: int):
         return [{"id": 300, "name": "Shared Studio", "siteUrl": None, "favourites": None, "isMain": anime_id == 1}]
 
+    async def fetch_voice_actors(self, anime_id: int):
+        return [
+            {
+                "id": 400,
+                "nameFull": "Shared Voice Actor",
+                "nameNative": None,
+                "imageUrl": None,
+                "siteUrl": None,
+                "favourites": 2000,
+                "characterName": "Hero" if anime_id == 1 else "Rival",
+                "characterImageUrl": None,
+            }
+        ]
+
 
 def test_search_endpoint_returns_normalized_results(client: TestClient, monkeypatch):
     monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeAniListClient()))
@@ -79,9 +93,11 @@ def test_compare_and_graph_endpoints_refresh_missing_cache(client: TestClient, m
 
     assert compare.status_code == 200
     assert compare.json()["sharedStaff"][0]["name"] == "Shared Director"
+    assert compare.json()["sharedVoiceActors"][0]["name"] == "Shared Voice Actor"
     assert compare.json()["score"] > 0
     assert graph.status_code == 200
     assert graph.json()["nodes"]
+    assert any(node["data"]["type"] == "voiceActor" for node in graph.json()["nodes"])
     assert graph.json()["highlightedPath"]
 
 
@@ -94,3 +110,14 @@ def test_node_detail_endpoint(client: TestClient, monkeypatch):
     assert response.status_code == 200
     assert response.json()["label"] == "Shared Director"
     assert response.json()["relatedAnime"]
+
+
+def test_voice_actor_node_detail_endpoint(client: TestClient, monkeypatch):
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeAniListClient()))
+    client.post("/api/compare", json={"sourceAnimeId": 1, "targetAnimeId": 2, "roleFilters": []})
+
+    response = client.get("/api/nodes/voiceActor/400")
+
+    assert response.status_code == 200
+    assert response.json()["label"] == "Shared Voice Actor"
+    assert response.json()["relatedConnections"]

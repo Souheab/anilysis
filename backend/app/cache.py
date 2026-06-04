@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, delete, select
 
 from app.anilist import AniListClient, AniListError
-from app.models import Anime, AnimeStaffRole, AnimeStudio, Staff, Studio, utc_now
+from app.models import Anime, AnimeStaffRole, AnimeStudio, AnimeVoiceActorRole, Staff, Studio, VoiceActor, utc_now
 from app.schemas import AnimeDetail, AnimeSearchResult, RefreshResponse
 from app.scoring import role_is_included, score_role, studio_weight
 
@@ -34,7 +34,8 @@ class AnimeCacheService:
         anime = await self.ensure_anime_loaded(session, anime_id, force=force)
         staff_count = len(session.exec(select(AnimeStaffRole).where(AnimeStaffRole.anime_id == anime_id)).all())
         studio_count = len(session.exec(select(AnimeStudio).where(AnimeStudio.anime_id == anime_id)).all())
-        return RefreshResponse(anime=anime_to_detail(anime), staffCount=staff_count, studioCount=studio_count)
+        voice_actor_count = len({role.voice_actor_id for role in session.exec(select(AnimeVoiceActorRole).where(AnimeVoiceActorRole.anime_id == anime_id)).all()})
+        return RefreshResponse(anime=anime_to_detail(anime), staffCount=staff_count, studioCount=studio_count, voiceActorCount=voice_actor_count)
 
     async def ensure_anime_loaded(self, session: Session, anime_id: int, force: bool = False) -> Anime:
         cached = session.get(Anime, anime_id)
@@ -44,6 +45,7 @@ class AnimeCacheService:
             anime_data = await self.client.fetch_anime(anime_id)
             staff_data = await self.client.fetch_staff(anime_id)
             studio_data = await self.client.fetch_studios(anime_id)
+            voice_actor_data = await self.client.fetch_voice_actors(anime_id)
         except AniListError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -51,10 +53,12 @@ class AnimeCacheService:
         now = utc_now()
         anime.staff_fetched_at = now
         anime.studios_fetched_at = now
+        anime.voice_cast_fetched_at = now
         anime.updated_at = now
 
         session.exec(delete(AnimeStaffRole).where(AnimeStaffRole.anime_id == anime_id))
         session.exec(delete(AnimeStudio).where(AnimeStudio.anime_id == anime_id))
+        session.exec(delete(AnimeVoiceActorRole).where(AnimeVoiceActorRole.anime_id == anime_id))
 
         seen_staff_roles: set[tuple[int, str]] = set()
         for item in staff_data:
@@ -80,6 +84,34 @@ class AnimeCacheService:
                     role=role,
                     role_category=role_score.category,
                     weight=role_score.weight,
+                    updated_at=now,
+                )
+            )
+
+        seen_voice_roles: set[tuple[int, str]] = set()
+        for item in voice_actor_data:
+            voice_actor = VoiceActor(
+                id=item["id"],
+                name_full=item["nameFull"],
+                name_native=item.get("nameNative"),
+                image_url=item.get("imageUrl"),
+                site_url=item.get("siteUrl"),
+                favourites=item.get("favourites"),
+                updated_at=now,
+            )
+            session.merge(voice_actor)
+            character_name = item.get("characterName", "Unknown character").strip() or "Unknown character"
+            if (item["id"], character_name) in seen_voice_roles:
+                continue
+            seen_voice_roles.add((item["id"], character_name))
+            session.add(
+                AnimeVoiceActorRole(
+                    anime_id=anime_id,
+                    voice_actor_id=item["id"],
+                    character_name=character_name,
+                    character_image_url=item.get("characterImageUrl"),
+                    role_category="voice_actor",
+                    weight=3.0,
                     updated_at=now,
                 )
             )
@@ -128,8 +160,10 @@ class AnimeCacheService:
         return bool(
             anime.staff_fetched_at
             and anime.studios_fetched_at
+            and anime.voice_cast_fetched_at
             and now - anime.staff_fetched_at < CACHE_TTL
             and now - anime.studios_fetched_at < CACHE_TTL
+            and now - anime.voice_cast_fetched_at < CACHE_TTL
         )
 
     def _upsert_anime(self, session: Session, item: dict) -> Anime:
@@ -173,6 +207,7 @@ def anime_to_detail(anime: Anime) -> AnimeDetail:
         favourites=anime.favourites,
         staffFetchedAt=anime.staff_fetched_at,
         studiosFetchedAt=anime.studios_fetched_at,
+        voiceCastFetchedAt=anime.voice_cast_fetched_at,
         updatedAt=anime.updated_at,
     )
 

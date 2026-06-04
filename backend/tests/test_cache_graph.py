@@ -6,7 +6,7 @@ from sqlmodel import select
 
 from app.cache import AnimeCacheService
 from app.graph import GraphService
-from app.models import Anime, AnimeStaffRole, AnimeStudio, Staff, Studio, utc_now
+from app.models import Anime, AnimeStaffRole, AnimeStudio, AnimeVoiceActorRole, Staff, Studio, VoiceActor, utc_now
 from app.scoring import score_role
 
 
@@ -71,6 +71,20 @@ class FakeAniListClient:
     async def fetch_studios(self, anime_id: int):
         return [{"id": 300, "name": "Shared Studio", "siteUrl": None, "favourites": None, "isMain": True}]
 
+    async def fetch_voice_actors(self, anime_id: int):
+        return [
+            {
+                "id": 400,
+                "nameFull": "Shared Voice Actor",
+                "nameNative": None,
+                "imageUrl": None,
+                "siteUrl": None,
+                "favourites": 3000,
+                "characterName": "Hero",
+                "characterImageUrl": None,
+            }
+        ]
+
 
 @pytest.mark.asyncio
 async def test_cache_skips_fresh_anime(session: Session):
@@ -83,6 +97,7 @@ async def test_cache_skips_fresh_anime(session: Session):
             title_romaji="Fresh",
             staff_fetched_at=now - timedelta(days=1),
             studios_fetched_at=now - timedelta(days=1),
+            voice_cast_fetched_at=now - timedelta(days=1),
         )
     )
     session.commit()
@@ -102,8 +117,10 @@ async def test_cache_refreshes_and_stores_relationships(session: Session):
     assert session.get(Anime, 1).title_romaji == "Anime 1"
     assert session.get(Staff, 100).name_full == "Shared Director"
     assert session.get(Studio, 300).name == "Shared Studio"
+    assert session.get(VoiceActor, 400).name_full == "Shared Voice Actor"
     assert len(session.exec(select(AnimeStaffRole)).all()) == 1
     assert len(session.exec(select(AnimeStudio)).all()) == 1
+    assert len(session.exec(select(AnimeVoiceActorRole)).all()) == 1
 
 
 def seed_compare_data(session: Session) -> None:
@@ -114,6 +131,8 @@ def seed_compare_data(session: Session) -> None:
     session.add(Staff(id=101, name_full="Shared Composer", favourites=1_000))
     session.add(Staff(id=102, name_full="Bridge Writer", favourites=100))
     session.add(Studio(id=300, name="Shared Studio"))
+    session.add(VoiceActor(id=400, name_full="Shared Voice Actor", favourites=8_000))
+    session.add(VoiceActor(id=401, name_full="Bridge Voice Actor", favourites=500))
     for anime_id, staff_id, role in [
         (1, 100, "Director"),
         (2, 100, "Director"),
@@ -134,6 +153,10 @@ def seed_compare_data(session: Session) -> None:
         )
     session.add(AnimeStudio(anime_id=1, studio_id=300, is_main=True, weight=4.2))
     session.add(AnimeStudio(anime_id=2, studio_id=300, is_main=False, weight=2.8))
+    session.add(AnimeVoiceActorRole(anime_id=1, voice_actor_id=400, character_name="Hero", weight=3.0))
+    session.add(AnimeVoiceActorRole(anime_id=2, voice_actor_id=400, character_name="Rival", weight=3.0))
+    session.add(AnimeVoiceActorRole(anime_id=1, voice_actor_id=401, character_name="Guide", weight=3.0))
+    session.add(AnimeVoiceActorRole(anime_id=3, voice_actor_id=401, character_name="Guide", weight=3.0))
     session.commit()
 
 
@@ -144,6 +167,8 @@ def test_compare_detects_shared_staff_studios_and_score(session: Session):
 
     assert [staff.name for staff in result.sharedStaff][:2] == ["Shared Director", "Shared Composer"]
     assert result.sharedStudios[0].name == "Shared Studio"
+    assert result.sharedVoiceActors[0].name == "Shared Voice Actor"
+    assert result.scoreBreakdown.sharedVoiceActors > 0
     assert result.score > 0
     assert result.shortestPath[0].id == "anime:1"
     assert result.shortestPath[-1].id == "anime:2"
@@ -168,6 +193,15 @@ def test_staff_popularity_filters_limit_shared_staff_and_graph(session: Session)
     assert [staff.name for staff in threshold_result.sharedStaff] == ["Shared Director"]
     assert "staff:100" in {node.data["id"] for node in top_one_graph.nodes}
     assert "staff:101" not in {node.data["id"] for node in top_one_graph.nodes}
+
+
+def test_cytoscape_graph_includes_voice_actor_nodes_and_edges(session: Session):
+    seed_compare_data(session)
+
+    graph = GraphService().cytoscape_graph(session, 1, 2, [], max_depth=1)
+
+    assert "voice_actor:400" in {node.data["id"] for node in graph.nodes}
+    assert any(edge.data["type"] == "voice_actor" for edge in graph.edges)
 
 
 def test_cytoscape_graph_returns_highlighted_path(session: Session):
@@ -226,4 +260,17 @@ def test_node_detail_enriches_anime_counts_and_about(session: Session):
     assert detail.favourites == 500
     assert detail.connectionCounts.staff == 3
     assert detail.connectionCounts.studios == 1
+    assert detail.connectionCounts.voiceActors == 2
     assert {role.label for role in detail.topRoles} >= {"Director", "Music", "Script"}
+
+
+def test_node_detail_enriches_voice_actor_connections(session: Session):
+    seed_compare_data(session)
+
+    detail = GraphService().node_detail(session, "voiceActor", 400)
+
+    assert detail.favourites == 8_000
+    assert detail.connectionCounts.anime == 2
+    assert detail.connectionCounts.roles == 2
+    assert {role.label for role in detail.topRoles} == {"Hero", "Rival"}
+    assert {connection.id for connection in detail.relatedConnections} == {1, 2}

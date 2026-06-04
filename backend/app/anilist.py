@@ -88,6 +88,31 @@ query AnimeStudios($id: Int!) {
 """
 
 
+ANIME_VOICE_ACTORS_QUERY = """
+query AnimeVoiceActors($id: Int!, $page: Int!, $perPage: Int!) {
+  Media(id: $id, type: ANIME) {
+    characters(page: $page, perPage: $perPage, sort: ROLE) {
+      pageInfo { hasNextPage currentPage lastPage }
+      edges {
+        node {
+          id
+          name { full native }
+          image { large medium }
+        }
+        voiceActors(language: JAPANESE) {
+          id
+          name { full native }
+          image { large medium }
+          siteUrl
+          favourites
+        }
+      }
+    }
+  }
+}
+"""
+
+
 class AniListClient:
     def __init__(self, endpoint: str = ANILIST_ENDPOINT, timeout: float = 30.0) -> None:
         self.endpoint = endpoint
@@ -168,6 +193,39 @@ class AniListClient:
                     }
                 )
         return studios
+
+    async def fetch_voice_actors(self, anime_id: int, per_page: int = 50, max_pages: int = 6) -> list[dict[str, Any]]:
+        cast: list[dict[str, Any]] = []
+        page = 1
+        while page <= max_pages:
+            data = await self._graphql(
+                ANIME_VOICE_ACTORS_QUERY,
+                {"id": anime_id, "page": page, "perPage": per_page},
+            )
+            connection = data["Media"]["characters"]
+            for edge in connection.get("edges") or []:
+                character = edge.get("node") or {}
+                character_name = (character.get("name") or {}).get("full") or "Unknown character"
+                character_image = ((character.get("image") or {}).get("large") or (character.get("image") or {}).get("medium"))
+                for actor in edge.get("voiceActors") or []:
+                    if not actor.get("id"):
+                        continue
+                    cast.append(
+                        {
+                            "id": actor["id"],
+                            "nameFull": (actor.get("name") or {}).get("full") or "Unknown voice actor",
+                            "nameNative": (actor.get("name") or {}).get("native"),
+                            "imageUrl": ((actor.get("image") or {}).get("large") or (actor.get("image") or {}).get("medium")),
+                            "siteUrl": actor.get("siteUrl"),
+                            "favourites": actor.get("favourites"),
+                            "characterName": character_name,
+                            "characterImageUrl": character_image,
+                        }
+                    )
+            if not (connection.get("pageInfo") or {}).get("hasNextPage"):
+                break
+            page += 1
+        return cast
 
     def _normalize_anime(self, media: dict[str, Any]) -> dict[str, Any]:
         title = media.get("title") or {}

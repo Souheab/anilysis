@@ -112,6 +112,92 @@ async def test_fetch_studios_normalizes_non_paginated_connection(httpx_mock):
 
 
 @pytest.mark.asyncio
+async def test_fetch_voice_actors_normalizes_japanese_cast_and_pagination(httpx_mock):
+    httpx_mock.add_response(
+        url=ANILIST_ENDPOINT,
+        json={
+            "data": {
+                "Media": {
+                    "characters": {
+                        "pageInfo": {"hasNextPage": True},
+                        "edges": [
+                            {
+                                "node": {
+                                    "id": 1,
+                                    "name": {"full": "Spike Spiegel", "native": None},
+                                    "image": {"large": "spike.jpg", "medium": "spike-small.jpg"},
+                                },
+                                "voiceActors": [
+                                    {
+                                        "id": 22,
+                                        "name": {"full": "Kouichi Yamadera", "native": "山寺宏一"},
+                                        "image": {"large": "actor.jpg", "medium": None},
+                                        "siteUrl": "https://anilist.co/staff/22",
+                                        "favourites": 9000,
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                }
+            }
+        },
+    )
+    httpx_mock.add_response(
+        url=ANILIST_ENDPOINT,
+        json={
+            "data": {
+                "Media": {
+                    "characters": {
+                        "pageInfo": {"hasNextPage": False},
+                        "edges": [
+                            {
+                                "node": {"id": 2, "name": {"full": None, "native": None}, "image": {}},
+                                "voiceActors": [
+                                    {
+                                        "id": 23,
+                                        "name": {"full": None, "native": None},
+                                        "image": {},
+                                        "siteUrl": None,
+                                        "favourites": None,
+                                    },
+                                    {"name": {"full": "Missing Id"}},
+                                ],
+                            }
+                        ],
+                    }
+                }
+            }
+        },
+    )
+
+    results = await AniListClient().fetch_voice_actors(1)
+
+    assert results == [
+        {
+            "id": 22,
+            "nameFull": "Kouichi Yamadera",
+            "nameNative": "山寺宏一",
+            "imageUrl": "actor.jpg",
+            "siteUrl": "https://anilist.co/staff/22",
+            "favourites": 9000,
+            "characterName": "Spike Spiegel",
+            "characterImageUrl": "spike.jpg",
+        },
+        {
+            "id": 23,
+            "nameFull": "Unknown voice actor",
+            "nameNative": None,
+            "imageUrl": None,
+            "siteUrl": None,
+            "favourites": None,
+            "characterName": "Unknown character",
+            "characterImageUrl": None,
+        },
+    ]
+
+
+@pytest.mark.asyncio
 async def test_anilist_raises_for_graphql_errors(httpx_mock):
     httpx_mock.add_response(url=ANILIST_ENDPOINT, json={"errors": [{"message": "bad"}]})
     httpx_mock.add_response(url=ANILIST_ENDPOINT, json={"errors": [{"message": "bad"}]})

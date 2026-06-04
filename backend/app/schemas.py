@@ -4,7 +4,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
-NodeType = Literal["anime", "staff", "studio"]
+NodeType = Literal["anime", "staff", "studio", "voiceActor"]
 
 
 class AnimeSearchResult(BaseModel):
@@ -28,6 +28,7 @@ class AnimeDetail(AnimeSearchResult):
     favourites: int | None = None
     staffFetchedAt: datetime | None = None
     studiosFetchedAt: datetime | None = None
+    voiceCastFetchedAt: datetime | None = None
     updatedAt: datetime | None = None
 
 
@@ -35,6 +36,7 @@ class RefreshResponse(BaseModel):
     anime: AnimeDetail
     staffCount: int
     studioCount: int
+    voiceActorCount: int
 
 
 class CompareRequest(BaseModel):
@@ -68,9 +70,21 @@ class SharedStudio(BaseModel):
     weight: float
 
 
+class SharedVoiceActor(BaseModel):
+    voiceActorId: int
+    name: str
+    imageUrl: str | None = None
+    favourites: int | None = None
+    sourceCharacters: list[str]
+    targetCharacters: list[str]
+    roleCategories: list[str]
+    weight: float
+
+
 class ScoreBreakdown(BaseModel):
     sharedStaff: float
     sharedStudios: float
+    sharedVoiceActors: float
     popularityBonus: float
     pathBonus: float
 
@@ -86,6 +100,7 @@ class CompareResponse(BaseModel):
     targetAnime: AnimeDetail
     sharedStaff: list[SharedStaff]
     sharedStudios: list[SharedStudio]
+    sharedVoiceActors: list[SharedVoiceActor]
     score: float
     scoreBreakdown: ScoreBreakdown
     shortestPath: list[PathNode]
@@ -118,6 +133,7 @@ class ConnectionCounts(BaseModel):
     anime: int = 0
     staff: int = 0
     studios: int = 0
+    voiceActors: int = 0
     roles: int = 0
 
 

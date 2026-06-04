@@ -2,6 +2,7 @@ from collections.abc import Generator
 from pathlib import Path
 import os
 
+from sqlalchemy import inspect, text
 from sqlmodel import Session, SQLModel, create_engine
 
 
@@ -21,6 +22,11 @@ engine = create_engine(
 
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
+    if DATABASE_URL.startswith("sqlite"):
+        with engine.begin() as connection:
+            columns = {column["name"] for column in inspect(connection).get_columns("anime")}
+            if "voice_cast_fetched_at" not in columns:
+                connection.execute(text("ALTER TABLE anime ADD COLUMN voice_cast_fetched_at DATETIME"))
 
 
 def get_session() -> Generator[Session, None, None]:
