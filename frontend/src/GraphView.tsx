@@ -12,6 +12,7 @@ export interface GraphViewHandle {
 
 interface GraphViewProps {
   graph: GraphResponse | null
+  showEdgeLabels: boolean
   selectedNodeId: string | null
   onNodeSelect: (nodeId: string) => void
 }
@@ -26,7 +27,7 @@ interface MiniNode {
 const MINIMAP_ENABLED = false
 
 export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function GraphView(
-  { graph, selectedNodeId, onNodeSelect },
+  { graph, showEdgeLabels, selectedNodeId, onNodeSelect },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -145,7 +146,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
           selector: 'edge',
           style: {
             width: 'mapData(weight, 1, 6, 1.4, 4)',
-            label: 'data(label)',
+            label: showEdgeLabels ? 'data(label)' : '',
             color: '#dbeafe',
             'font-size': 9,
             'line-color': '#9ca3af',
@@ -221,7 +222,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       cy.destroy()
       cyRef.current = null
     }
-  }, [elements, graph, onNodeSelect])
+  }, [elements, graph, onNodeSelect, showEdgeLabels])
 
   useEffect(() => {
     const cy = cyRef.current

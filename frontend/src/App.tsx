@@ -2,6 +2,9 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import {
   ArrowRightLeft,
   Building2,
+  ChevronDown,
+  CircleDotDashed,
+  Cuboid,
   Film,
   Flame,
   Focus,
@@ -10,7 +13,9 @@ import {
   Loader2,
   Maximize2,
   MousePointer2,
+  Network,
   Plus,
+  RotateCcw,
   Search,
   SlidersHorizontal,
   Users,
@@ -45,7 +50,16 @@ const ROLE_FILTERS = [
   { id: 'other', label: 'Other', color: '#94a3b8' },
 ]
 
+const NODE_TYPE_FILTERS = [
+  { id: 'anime', label: 'Anime', color: '#1688ff', icon: Film },
+  { id: 'staff', label: 'Staff', color: '#ff8a3d', icon: Users },
+  { id: 'studio', label: 'Studio', color: '#65c56f', icon: Building2 },
+] as const
+
+const FILTER_SECTION_STORAGE_KEY = 'anime-six-degrees.filterSections.v1'
 const ALL_ROLE_IDS = ROLE_FILTERS.map((filter) => filter.id)
+const NO_ROLE_FILTERS_SENTINEL = '__none__'
+const DEFAULT_NODE_TYPES = { anime: true, staff: true, studio: true }
 const STAFF_LIMIT_OPTIONS = [
   { label: 'Top 10', value: 10 },
   { label: 'Top 20', value: 20 },
@@ -54,12 +68,20 @@ const STAFF_LIMIT_OPTIONS = [
   { label: 'All staff', value: null },
 ]
 
+type NodeTypeId = (typeof NODE_TYPE_FILTERS)[number]['id']
+type VisibleNodeTypes = Record<NodeTypeId, boolean>
+type FilterSectionId = 'roles' | 'nodes' | 'favourites' | 'graph'
+type FilterSectionState = Record<FilterSectionId, boolean>
+
 function titleFor(anime: AnimeSearchResult) {
   return anime.titleEnglish || anime.titleRomaji
 }
 
 function filtersForApi(activeFilters: string[]) {
-  return activeFilters.length === ROLE_FILTERS.length ? [] : activeFilters
+  if (activeFilters.length === ROLE_FILTERS.length) {
+    return []
+  }
+  return activeFilters.length === 0 ? [NO_ROLE_FILTERS_SENTINEL] : activeFilters
 }
 
 function formatMeta(anime: AnimeSearchResult) {
@@ -81,14 +103,82 @@ function primaryRole(staff: SharedStaff) {
   return staff.sourceRoles[0] || staff.targetRoles[0] || staff.roleCategories[0] || 'Role'
 }
 
+function initialFilterSections(): FilterSectionState {
+  const fallback = { roles: false, nodes: false, favourites: false, graph: false }
+  if (typeof window === 'undefined') {
+    return fallback
+  }
+  try {
+    const saved = window.localStorage.getItem(FILTER_SECTION_STORAGE_KEY)
+    if (!saved) {
+      return fallback
+    }
+    const parsed = JSON.parse(saved) as Partial<Record<FilterSectionId, unknown>>
+    return {
+      roles: parsed.roles === true,
+      nodes: parsed.nodes === true,
+      favourites: parsed.favourites === true,
+      graph: parsed.graph === true,
+    }
+  } catch {
+    return fallback
+  }
+}
+
+function filterGraph(
+  graph: GraphResponse | null,
+  visibleNodeTypes: VisibleNodeTypes,
+  hideIsolatedNodes: boolean,
+): GraphResponse | null {
+  if (!graph) {
+    return null
+  }
+
+  const typeVisible = (type: unknown) => {
+    if (type !== 'anime' && type !== 'staff' && type !== 'studio') {
+      return true
+    }
+    return visibleNodeTypes[type]
+  }
+
+  let nodes = graph.nodes.filter((node) => typeVisible(node.data.type))
+  let visibleNodeIds = new Set(nodes.map((node) => String(node.data.id)))
+  let edges = graph.edges.filter((edge) => {
+    const source = edge.data.source
+    const target = edge.data.target
+    return typeof source === 'string' && typeof target === 'string' && visibleNodeIds.has(source) && visibleNodeIds.has(target)
+  })
+
+  if (hideIsolatedNodes) {
+    const connectedNodeIds = new Set<string>()
+    for (const edge of edges) {
+      connectedNodeIds.add(String(edge.data.source))
+      connectedNodeIds.add(String(edge.data.target))
+    }
+    nodes = nodes.filter((node) => connectedNodeIds.has(String(node.data.id)))
+    visibleNodeIds = new Set(nodes.map((node) => String(node.data.id)))
+    edges = edges.filter((edge) => visibleNodeIds.has(String(edge.data.source)) && visibleNodeIds.has(String(edge.data.target)))
+  }
+
+  return {
+    nodes,
+    edges,
+    highlightedPath: graph.highlightedPath.filter((nodeId) => visibleNodeIds.has(nodeId)),
+  }
+}
+
 function App() {
   const graphRef = useRef<GraphViewHandle | null>(null)
   const [sourceAnime, setSourceAnime] = useState<AnimeSearchResult | null>(null)
   const [targetAnime, setTargetAnime] = useState<AnimeSearchResult | null>(null)
   const [activeSlot, setActiveSlot] = useState<1 | 2>(1)
   const [activeFilters, setActiveFilters] = useState(() => ALL_ROLE_IDS)
+  const [visibleNodeTypes, setVisibleNodeTypes] = useState<VisibleNodeTypes>(DEFAULT_NODE_TYPES)
   const [staffMinFavourites, setStaffMinFavourites] = useState(DEFAULT_STAFF_POPULARITY_FILTERS.staffMinFavourites)
   const [staffLimit, setStaffLimit] = useState<number | null>(DEFAULT_STAFF_POPULARITY_FILTERS.staffLimit)
+  const [showEdgeLabels, setShowEdgeLabels] = useState(true)
+  const [hideIsolatedNodes, setHideIsolatedNodes] = useState(true)
+  const [filterSections, setFilterSections] = useState<FilterSectionState>(initialFilterSections)
   const [comparison, setComparison] = useState<CompareResponse | null>(null)
   const [graph, setGraph] = useState<GraphResponse | null>(null)
   const [nodeDetail, setNodeDetail] = useState<NodeDetail | null>(null)
@@ -99,8 +189,31 @@ function App() {
 
   const apiFilters = useMemo(() => filtersForApi(activeFilters), [activeFilters])
   const popularityFilters = useMemo(() => ({ staffMinFavourites, staffLimit }), [staffLimit, staffMinFavourites])
+  const displayGraph = useMemo(() => filterGraph(graph, visibleNodeTypes, hideIsolatedNodes), [graph, hideIsolatedNodes, visibleNodeTypes])
   const canCompare = Boolean(sourceAnime && targetAnime && sourceAnime.id !== targetAnime.id)
   const duplicateSelection = Boolean(sourceAnime && targetAnime && sourceAnime.id === targetAnime.id)
+
+  useEffect(() => {
+    window.localStorage.setItem(FILTER_SECTION_STORAGE_KEY, JSON.stringify(filterSections))
+  }, [filterSections])
+
+  useEffect(() => {
+    if (!selectedNodeId || !displayGraph) {
+      return
+    }
+    if (!displayGraph.nodes.some((node) => node.data.id === selectedNodeId)) {
+      let cancelled = false
+      window.queueMicrotask(() => {
+        if (!cancelled) {
+          setSelectedNodeId(null)
+          setNodeDetail(null)
+        }
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+  }, [displayGraph, selectedNodeId])
 
   useEffect(() => {
     if (!sourceAnime || !targetAnime) {
@@ -191,6 +304,37 @@ function App() {
     })
   }
 
+  const setAllRoleFilters = (active: boolean) => {
+    setActiveFilters(active ? ALL_ROLE_IDS : [])
+  }
+
+  const toggleNodeType = (nodeType: NodeTypeId) => {
+    setVisibleNodeTypes((current) => ({ ...current, [nodeType]: !current[nodeType] }))
+  }
+
+  const setAllNodeTypes = (active: boolean) => {
+    setVisibleNodeTypes({ anime: active, staff: active, studio: active })
+  }
+
+  const setFilterSectionOpen = (section: FilterSectionId) => {
+    setFilterSections((current) => ({ ...current, [section]: !current[section] }))
+  }
+
+  const setPopularityFiltersActive = (active: boolean) => {
+    if (active) {
+      setStaffMinFavourites(DEFAULT_STAFF_POPULARITY_FILTERS.staffMinFavourites)
+      setStaffLimit(DEFAULT_STAFF_POPULARITY_FILTERS.staffLimit)
+    } else {
+      setStaffMinFavourites(0)
+      setStaffLimit(null)
+    }
+  }
+
+  const setGraphSettingsActive = (active: boolean) => {
+    setShowEdgeLabels(active)
+    setHideIsolatedNodes(active)
+  }
+
   const resetFilters = () => {
     setActiveFilters(ALL_ROLE_IDS)
     setStaffMinFavourites(DEFAULT_STAFF_POPULARITY_FILTERS.staffMinFavourites)
@@ -249,7 +393,7 @@ function App() {
         <section className="graph-panel">
           <GraphToolbar
             loading={isComparing}
-            nodeCount={graph?.nodes.length ?? 0}
+            nodeCount={displayGraph?.nodes.length ?? 0}
             onZoomIn={() => graphRef.current?.zoomIn()}
             onZoomOut={() => graphRef.current?.zoomOut()}
             onFit={() => graphRef.current?.fit()}
@@ -257,7 +401,8 @@ function App() {
           />
           <GraphView
             ref={graphRef}
-            graph={graph}
+            graph={displayGraph}
+            showEdgeLabels={showEdgeLabels}
             selectedNodeId={selectedNodeId}
             onNodeSelect={selectNode}
           />
@@ -272,11 +417,24 @@ function App() {
           <RoleFilters
             activeFilters={activeFilters}
             comparison={comparison}
+            graph={graph}
+            visibleNodeTypes={visibleNodeTypes}
             staffMinFavourites={staffMinFavourites}
             staffLimit={staffLimit}
+            showEdgeLabels={showEdgeLabels}
+            hideIsolatedNodes={hideIsolatedNodes}
+            sectionState={filterSections}
             onToggle={toggleFilter}
+            onSetAllRoles={setAllRoleFilters}
+            onToggleNodeType={toggleNodeType}
+            onSetAllNodeTypes={setAllNodeTypes}
             onMinFavouritesChange={setStaffMinFavourites}
             onStaffLimitChange={setStaffLimit}
+            onSetPopularityFiltersActive={setPopularityFiltersActive}
+            onShowEdgeLabelsChange={setShowEdgeLabels}
+            onHideIsolatedNodesChange={setHideIsolatedNodes}
+            onSetGraphSettingsActive={setGraphSettingsActive}
+            onToggleSection={setFilterSectionOpen}
             onReset={resetFilters}
           />
         </aside>
@@ -624,20 +782,46 @@ function NodeTypeIcon({ type }: { type: NodeDetail['type'] }) {
 function RoleFilters({
   activeFilters,
   comparison,
+  graph,
+  visibleNodeTypes,
   staffMinFavourites,
   staffLimit,
+  showEdgeLabels,
+  hideIsolatedNodes,
+  sectionState,
   onToggle,
+  onSetAllRoles,
+  onToggleNodeType,
+  onSetAllNodeTypes,
   onMinFavouritesChange,
   onStaffLimitChange,
+  onSetPopularityFiltersActive,
+  onShowEdgeLabelsChange,
+  onHideIsolatedNodesChange,
+  onSetGraphSettingsActive,
+  onToggleSection,
   onReset,
 }: {
   activeFilters: string[]
   comparison: CompareResponse | null
+  graph: GraphResponse | null
+  visibleNodeTypes: VisibleNodeTypes
   staffMinFavourites: number
   staffLimit: number | null
+  showEdgeLabels: boolean
+  hideIsolatedNodes: boolean
+  sectionState: FilterSectionState
   onToggle: (id: string) => void
+  onSetAllRoles: (active: boolean) => void
+  onToggleNodeType: (id: NodeTypeId) => void
+  onSetAllNodeTypes: (active: boolean) => void
   onMinFavouritesChange: (value: number) => void
   onStaffLimitChange: (value: number | null) => void
+  onSetPopularityFiltersActive: (active: boolean) => void
+  onShowEdgeLabelsChange: (value: boolean) => void
+  onHideIsolatedNodesChange: (value: boolean) => void
+  onSetGraphSettingsActive: (active: boolean) => void
+  onToggleSection: (section: FilterSectionId) => void
   onReset: () => void
 }) {
   const counts = useMemo(() => {
@@ -653,55 +837,224 @@ function RoleFilters({
     }
     return next
   }, [comparison])
+  const nodeCounts = useMemo(() => {
+    const next = new Map<NodeTypeId, number>([
+      ['anime', 0],
+      ['staff', 0],
+      ['studio', 0],
+    ])
+    for (const node of graph?.nodes ?? []) {
+      const type = node.data.type
+      if (type === 'anime' || type === 'staff' || type === 'studio') {
+        next.set(type, (next.get(type) ?? 0) + 1)
+      }
+    }
+    return next
+  }, [graph])
+  const rolesActive = activeFilters.length > 0
+  const nodeTypesActive = Object.values(visibleNodeTypes).some(Boolean)
+  const staffPopularityActive = staffMinFavourites > 0 || staffLimit !== null
+  const graphSettingsActive = showEdgeLabels || hideIsolatedNodes
 
   return (
     <section className="filter-section">
-      <div className="section-title">
+      <div className="filter-section-title">
         <h3>Filters</h3>
-        <button type="button" onClick={onReset}>Reset</button>
+        <button type="button" className="filter-reset" onClick={onReset}><RotateCcw size={13} /> Reset</button>
       </div>
-      <div className="filter-list">
-        {ROLE_FILTERS.map((filter) => {
-          const active = activeFilters.includes(filter.id)
-          return (
-            <button key={filter.id} type="button" className="filter-row" onClick={() => onToggle(filter.id)}>
-              <SlidersHorizontal size={15} style={{ color: filter.color }} />
-              <span>{filter.label}</span>
-              <span className={`switch ${active ? 'on' : ''}`} />
-              <small>{counts.get(filter.id) ?? 0}</small>
-            </button>
-          )
-        })}
-      </div>
-      <div className="popularity-controls">
-        <div className="popularity-control">
-          <label htmlFor="staff-min-favourites">Minimum favourites</label>
-          <div className="number-input">
-            <Flame size={15} />
-            <input
-              id="staff-min-favourites"
-              type="number"
-              min={0}
-              step={100}
-              value={staffMinFavourites}
-              onChange={(event) => onMinFavouritesChange(Math.max(0, Number(event.target.value) || 0))}
-            />
+
+      <FilterAccordionSection
+        id="roles"
+        title="Filter by Staff Role"
+        subtitle="Show staff with selected roles"
+        icon={<SlidersHorizontal size={18} />}
+        iconTone="purple"
+        open={sectionState.roles}
+        active={rolesActive}
+        onToggleOpen={onToggleSection}
+        onToggleActive={() => onSetAllRoles(!rolesActive)}
+      >
+        <div className="filter-list">
+          {ROLE_FILTERS.map((filter) => {
+            const active = activeFilters.includes(filter.id)
+            return (
+              <button key={filter.id} type="button" className="filter-row" onClick={() => onToggle(filter.id)}>
+                <SlidersHorizontal size={14} style={{ color: filter.color }} />
+                <span>{filter.label}</span>
+                <span className={`switch ${active ? 'on' : ''}`} aria-hidden="true" />
+                <small>{counts.get(filter.id) ?? 0}</small>
+              </button>
+            )
+          })}
+        </div>
+      </FilterAccordionSection>
+
+      <FilterAccordionSection
+        id="nodes"
+        title="Filter by Node Types"
+        subtitle="Choose which types of nodes to display"
+        icon={<Cuboid size={18} />}
+        iconTone="blue"
+        open={sectionState.nodes}
+        active={nodeTypesActive}
+        onToggleOpen={onToggleSection}
+        onToggleActive={() => onSetAllNodeTypes(!nodeTypesActive)}
+      >
+        <div className="filter-list">
+          {NODE_TYPE_FILTERS.map((filter) => {
+            const Icon = filter.icon
+            const active = visibleNodeTypes[filter.id]
+            return (
+              <button key={filter.id} type="button" className="filter-row" onClick={() => onToggleNodeType(filter.id)}>
+                <Icon size={14} style={{ color: filter.color }} />
+                <span>{filter.label}</span>
+                <span className={`switch ${active ? 'on' : ''}`} aria-hidden="true" />
+                <small>{nodeCounts.get(filter.id) ?? 0}</small>
+              </button>
+            )
+          })}
+        </div>
+      </FilterAccordionSection>
+
+      <FilterAccordionSection
+        id="favourites"
+        title="Filter by Staff Favourites"
+        subtitle="Filter staff by popularity"
+        icon={<Flame size={18} />}
+        iconTone="orange"
+        open={sectionState.favourites}
+        active={staffPopularityActive}
+        onToggleOpen={onToggleSection}
+        onToggleActive={() => onSetPopularityFiltersActive(!staffPopularityActive)}
+      >
+        <div className="popularity-controls">
+          <div className="popularity-control">
+            <div className="control-heading">
+              <label htmlFor="staff-min-favourites">Minimum favourites</label>
+              <span>{staffMinFavourites.toLocaleString()}</span>
+            </div>
+            <div className="range-control">
+              <span>0</span>
+              <input
+                type="range"
+                min={0}
+                max={5000}
+                step={100}
+                value={Math.min(staffMinFavourites, 5000)}
+                onChange={(event) => onMinFavouritesChange(Number(event.target.value))}
+              />
+              <span>5,000</span>
+            </div>
+            <div className="number-input">
+              <Flame size={15} />
+              <input
+                id="staff-min-favourites"
+                type="number"
+                min={0}
+                step={100}
+                value={staffMinFavourites}
+                onChange={(event) => onMinFavouritesChange(Math.max(0, Number(event.target.value) || 0))}
+              />
+            </div>
+          </div>
+          <div className="popularity-control">
+            <label htmlFor="staff-limit">Maximum staff nodes</label>
+            <select
+              id="staff-limit"
+              value={staffLimit ?? 'all'}
+              onChange={(event) => onStaffLimitChange(event.target.value === 'all' ? null : Number(event.target.value))}
+            >
+              {STAFF_LIMIT_OPTIONS.map((option) => (
+                <option key={option.label} value={option.value ?? 'all'}>{option.label}</option>
+              ))}
+            </select>
+            <p>Show only the most popular staff nodes in the graph.</p>
           </div>
         </div>
-        <div className="popularity-control">
-          <label htmlFor="staff-limit">Staff shown</label>
-          <select
-            id="staff-limit"
-            value={staffLimit ?? 'all'}
-            onChange={(event) => onStaffLimitChange(event.target.value === 'all' ? null : Number(event.target.value))}
-          >
-            {STAFF_LIMIT_OPTIONS.map((option) => (
-              <option key={option.label} value={option.value ?? 'all'}>{option.label}</option>
-            ))}
-          </select>
+      </FilterAccordionSection>
+
+      <FilterAccordionSection
+        id="graph"
+        title="Filter by Graph Settings"
+        subtitle="Control graph density and visibility"
+        icon={<Network size={18} />}
+        iconTone="green"
+        open={sectionState.graph}
+        active={graphSettingsActive}
+        onToggleOpen={onToggleSection}
+        onToggleActive={() => onSetGraphSettingsActive(!graphSettingsActive)}
+      >
+        <div className="filter-list">
+          <button type="button" className="filter-row graph-setting-row" onClick={() => onShowEdgeLabelsChange(!showEdgeLabels)}>
+            <CircleDotDashed size={14} />
+            <span>
+              <strong>Show edge labels</strong>
+              <em>Display role labels on edges</em>
+            </span>
+            <span className={`switch ${showEdgeLabels ? 'on' : ''}`} aria-hidden="true" />
+          </button>
+          <button type="button" className="filter-row graph-setting-row" onClick={() => onHideIsolatedNodesChange(!hideIsolatedNodes)}>
+            <Network size={14} />
+            <span>
+              <strong>Hide isolated nodes</strong>
+              <em>Hide nodes that have no connections</em>
+            </span>
+            <span className={`switch ${hideIsolatedNodes ? 'on' : ''}`} aria-hidden="true" />
+          </button>
         </div>
-      </div>
+      </FilterAccordionSection>
     </section>
+  )
+}
+
+function FilterAccordionSection({
+  id,
+  title,
+  subtitle,
+  icon,
+  iconTone,
+  open,
+  active,
+  onToggleOpen,
+  onToggleActive,
+  children,
+}: {
+  id: FilterSectionId
+  title: string
+  subtitle: string
+  icon: ReactNode
+  iconTone: 'purple' | 'blue' | 'orange' | 'green'
+  open: boolean
+  active: boolean
+  onToggleOpen: (section: FilterSectionId) => void
+  onToggleActive: () => void
+  children: ReactNode
+}) {
+  return (
+    <div className={`filter-card ${open ? 'open' : ''}`}>
+      <div className="filter-card-header">
+        <button type="button" className="filter-card-title" onClick={() => onToggleOpen(id)} aria-expanded={open}>
+          <span className={`filter-icon ${iconTone}`}>{icon}</span>
+          <span>
+            <strong>{title}</strong>
+            <small>{subtitle}</small>
+          </span>
+        </button>
+        <button
+          type="button"
+          className={`switch-button ${active ? 'on' : ''}`}
+          onClick={onToggleActive}
+          aria-pressed={active}
+          aria-label={`${active ? 'Disable' : 'Enable'} ${title}`}
+        >
+          <span className={`switch ${active ? 'on' : ''}`} aria-hidden="true" />
+        </button>
+        <button type="button" className="filter-collapse" onClick={() => onToggleOpen(id)} aria-label={`${open ? 'Collapse' : 'Expand'} ${title}`}>
+          <ChevronDown size={16} />
+        </button>
+      </div>
+      {open ? <div className="filter-card-body">{children}</div> : null}
+    </div>
   )
 }
 
