@@ -360,7 +360,9 @@ function App() {
   const [targetAnime, setTargetAnime] = useState<AnimeSearchResult | null>(null)
   const [activeSlot, setActiveSlot] = useState<1 | 2>(1)
   const [activeFilters, setActiveFilters] = useState(() => ALL_ROLE_IDS)
+  const [roleFiltersEnabled, setRoleFiltersEnabled] = useState(true)
   const [visibleNodeTypes, setVisibleNodeTypes] = useState<VisibleNodeTypes>(DEFAULT_NODE_TYPES)
+  const [nodeTypeFiltersEnabled, setNodeTypeFiltersEnabled] = useState(true)
   const [showOnlyMainStudioEdges, setShowOnlyMainStudioEdges] = useState(DEFAULT_SHOW_ONLY_MAIN_STUDIO_EDGES)
   const [edgeFilterRegex, setEdgeFilterRegex] = useState(DEFAULT_EDGE_FILTER_REGEX)
   const [staffMinFavourites, setStaffMinFavourites] = useState(DEFAULT_STAFF_POPULARITY_FILTERS.staffMinFavourites)
@@ -378,11 +380,13 @@ function App() {
   const [isLoadingNode, setIsLoadingNode] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const apiFilters = useMemo(() => filtersForApi(activeFilters), [activeFilters])
+  const effectiveActiveFilters = roleFiltersEnabled ? activeFilters : ALL_ROLE_IDS
+  const effectiveVisibleNodeTypes = nodeTypeFiltersEnabled ? visibleNodeTypes : DEFAULT_NODE_TYPES
+  const apiFilters = useMemo(() => filtersForApi(effectiveActiveFilters), [effectiveActiveFilters])
   const popularityFilters = useMemo(() => ({ staffMinFavourites, staffLimit }), [staffLimit, staffMinFavourites])
   const displayGraph = useMemo(
-    () => filterGraph(graph, visibleNodeTypes, hideIsolatedNodes, showOnlyMainStudioEdges, edgeFilterRegex),
-    [edgeFilterRegex, graph, hideIsolatedNodes, showOnlyMainStudioEdges, visibleNodeTypes],
+    () => filterGraph(graph, effectiveVisibleNodeTypes, hideIsolatedNodes, showOnlyMainStudioEdges, edgeFilterRegex),
+    [edgeFilterRegex, effectiveVisibleNodeTypes, graph, hideIsolatedNodes, showOnlyMainStudioEdges],
   )
   const canCompare = Boolean(sourceAnime && targetAnime && sourceAnime.id !== targetAnime.id)
   const duplicateSelection = Boolean(sourceAnime && targetAnime && sourceAnime.id === targetAnime.id)
@@ -511,7 +515,7 @@ function App() {
   }
 
   const setAllRoleFilters = (active: boolean) => {
-    setActiveFilters(active ? ALL_ROLE_IDS : [])
+    setRoleFiltersEnabled(active)
   }
 
   const toggleNodeType = (nodeType: NodeTypeId) => {
@@ -519,7 +523,7 @@ function App() {
   }
 
   const setAllNodeTypes = (active: boolean) => {
-    setVisibleNodeTypes({ anime: active, staff: active, voiceActor: active, studio: active })
+    setNodeTypeFiltersEnabled(active)
   }
 
   const setShowOnlyMainStudioEdgesFilter = (active: boolean) => {
@@ -554,6 +558,9 @@ function App() {
 
   const resetFilters = () => {
     setActiveFilters(ALL_ROLE_IDS)
+    setRoleFiltersEnabled(true)
+    setVisibleNodeTypes(DEFAULT_NODE_TYPES)
+    setNodeTypeFiltersEnabled(true)
     setShowOnlyMainStudioEdges(DEFAULT_SHOW_ONLY_MAIN_STUDIO_EDGES)
     setEdgeFilterRegex(DEFAULT_EDGE_FILTER_REGEX)
     setStaffMinFavourites(DEFAULT_STAFF_POPULARITY_FILTERS.staffMinFavourites)
@@ -650,9 +657,11 @@ function App() {
           }} />
           <RoleFilters
             activeFilters={activeFilters}
+            roleFiltersEnabled={roleFiltersEnabled}
             comparison={comparison}
             graph={graph}
             visibleNodeTypes={visibleNodeTypes}
+            nodeTypeFiltersEnabled={nodeTypeFiltersEnabled}
             showOnlyMainStudioEdges={showOnlyMainStudioEdges}
             edgeFilterRegex={edgeFilterRegex}
             staffMinFavourites={staffMinFavourites}
@@ -1134,9 +1143,11 @@ function NodeTypeIcon({ type }: { type: NodeDetail['type'] }) {
 
 function RoleFilters({
   activeFilters,
+  roleFiltersEnabled,
   comparison,
   graph,
   visibleNodeTypes,
+  nodeTypeFiltersEnabled,
   showOnlyMainStudioEdges,
   edgeFilterRegex,
   staffMinFavourites,
@@ -1161,9 +1172,11 @@ function RoleFilters({
   onReset,
 }: {
   activeFilters: string[]
+  roleFiltersEnabled: boolean
   comparison: CompareResponse | null
   graph: GraphResponse | null
   visibleNodeTypes: VisibleNodeTypes
+  nodeTypeFiltersEnabled: boolean
   showOnlyMainStudioEdges: boolean
   edgeFilterRegex: string
   staffMinFavourites: number
@@ -1215,8 +1228,8 @@ function RoleFilters({
     }
     return next
   }, [graph])
-  const rolesActive = activeFilters.length > 0
-  const nodeTypesActive = Object.values(visibleNodeTypes).some(Boolean)
+  const rolesActive = roleFiltersEnabled
+  const nodeTypesActive = nodeTypeFiltersEnabled
   const regexEdgeFilterActive = edgeFilterRegex.trim().length > 0
   const edgeTypeFiltersActive = showOnlyMainStudioEdges || regexEdgeFilterActive
   const edgeFilterRegexInvalid = regexEdgeFilterActive && !compileEdgeFilterRegex(edgeFilterRegex)
@@ -1241,11 +1254,17 @@ function RoleFilters({
         onToggleOpen={onToggleSection}
         onToggleActive={() => onSetAllRoles(!rolesActive)}
       >
-        <div className="filter-list">
+        <div className={`filter-list ${rolesActive ? '' : 'disabled'}`}>
           {ROLE_FILTERS.map((filter) => {
             const active = activeFilters.includes(filter.id)
             return (
-              <button key={filter.id} type="button" className="filter-row" onClick={() => onToggle(filter.id)}>
+              <button
+                key={filter.id}
+                type="button"
+                className="filter-row"
+                onClick={() => onToggle(filter.id)}
+                disabled={!rolesActive}
+              >
                 <SlidersHorizontal size={14} style={{ color: filter.color }} />
                 <span>{filter.label}</span>
                 <span className={`switch ${active ? 'on' : ''}`} aria-hidden="true" />
@@ -1267,12 +1286,18 @@ function RoleFilters({
         onToggleOpen={onToggleSection}
         onToggleActive={() => onSetAllNodeTypes(!nodeTypesActive)}
       >
-        <div className="filter-list">
+        <div className={`filter-list ${nodeTypesActive ? '' : 'disabled'}`}>
           {NODE_TYPE_FILTERS.map((filter) => {
             const Icon = filter.icon
             const active = visibleNodeTypes[filter.id]
             return (
-              <button key={filter.id} type="button" className="filter-row" onClick={() => onToggleNodeType(filter.id)}>
+              <button
+                key={filter.id}
+                type="button"
+                className="filter-row"
+                onClick={() => onToggleNodeType(filter.id)}
+                disabled={!nodeTypesActive}
+              >
                 <Icon size={14} style={{ color: filter.color }} />
                 <span>{filter.label}</span>
                 <span className={`switch ${active ? 'on' : ''}`} aria-hidden="true" />
