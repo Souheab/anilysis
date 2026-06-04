@@ -462,7 +462,6 @@ function AnimeThumb({ anime }: { anime: AnimeSearchResult }) {
 
 function ConnectionScore({ comparison, loading, canCompare }: { comparison: CompareResponse | null; loading: boolean; canCompare: boolean }) {
   const score = Math.round(comparison?.score ?? 0)
-  const activeStars = Math.round(score / 20)
   return (
     <section className="score-card">
       <div className="score-title">
@@ -475,7 +474,6 @@ function ConnectionScore({ comparison, loading, canCompare }: { comparison: Comp
         <>
           <div className="score-row">
             <strong>{comparison ? `${score}%` : '--'}</strong>
-            <span className="stars">{Array.from({ length: 5 }, (_, index) => <span key={index}>{index < activeStars ? '★' : '☆'}</span>)}</span>
           </div>
           <p>{comparison ? 'Shared creative DNA through staff and studio overlap' : canCompare ? 'Comparison will run automatically.' : 'Choose two anime to compare.'}</p>
         </>
