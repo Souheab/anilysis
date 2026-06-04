@@ -48,7 +48,6 @@ const ROLE_FILTERS = [
   { id: 'design', label: 'Character Design', color: '#26d9d1' },
   { id: 'animation', label: 'Animation Director', color: '#4bd66d' },
   { id: 'production', label: 'Production', color: '#ff8a3d' },
-  { id: 'studio', label: 'Studio', color: '#65c56f' },
   { id: 'other', label: 'Other', color: '#94a3b8' },
 ]
 
@@ -63,7 +62,6 @@ const FILTER_SECTION_STORAGE_KEY = 'anime-six-degrees.filterSections.v1'
 const RECENT_COMPARISONS_STORAGE_KEY = 'anime-six-degrees.recentComparisons.v1'
 const RECENT_COMPARISON_LIMIT = 10
 const ALL_ROLE_IDS = ROLE_FILTERS.map((filter) => filter.id)
-const NO_ROLE_FILTERS_SENTINEL = '__none__'
 const DEFAULT_NODE_TYPES = { anime: true, staff: true, voiceActor: true, studio: true }
 const DEFAULT_SHOW_ONLY_MAIN_STUDIO_EDGES = true
 const DEFAULT_EDGE_FILTER_REGEX = ''
@@ -87,13 +85,6 @@ type RecentComparison = {
 
 function titleFor(anime: AnimeSearchResult) {
   return anime.titleEnglish || anime.titleRomaji
-}
-
-function filtersForApi(activeFilters: string[]) {
-  if (activeFilters.length === ROLE_FILTERS.length) {
-    return []
-  }
-  return activeFilters.length === 0 ? [NO_ROLE_FILTERS_SENTINEL] : activeFilters
 }
 
 function formatMeta(anime: AnimeSearchResult) {
@@ -235,9 +226,49 @@ function isSupportingStudioEdge(edge: GraphResponse['edges'][number]) {
   return edge.data.type === 'studio' && edge.data.label === 'Studio'
 }
 
+function stringListDataValue(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+function staffEdgeCategories(edge: GraphResponse['edges'][number]) {
+  return stringListDataValue(edge.data.roleCategories).filter((category) => category !== 'studio')
+}
+
+function staffNodeRoleCategories(graph: GraphResponse | null) {
+  const categoriesByNodeId = new Map<string, Set<string>>()
+  for (const edge of graph?.edges ?? []) {
+    if (edge.data.type !== 'staff') {
+      continue
+    }
+    const categories = staffEdgeCategories(edge)
+    if (categories.length === 0) {
+      continue
+    }
+    for (const endpoint of [edge.data.source, edge.data.target]) {
+      if (typeof endpoint !== 'string' || !endpoint.startsWith('staff:')) {
+        continue
+      }
+      const existing = categoriesByNodeId.get(endpoint) ?? new Set<string>()
+      for (const category of categories) {
+        existing.add(category)
+      }
+      categoriesByNodeId.set(endpoint, existing)
+    }
+  }
+  return categoriesByNodeId
+}
+
+function primaryStaffRoleCategory(categories: Set<string> | undefined) {
+  if (!categories) {
+    return null
+  }
+  return ROLE_FILTERS.find((filter) => categories.has(filter.id))?.id ?? null
+}
+
 function filterGraph(
   graph: GraphResponse | null,
   visibleNodeTypes: VisibleNodeTypes,
+  activeRoleFilters: string[],
   hideIsolatedNodes: boolean,
   showOnlyMainStudioEdges: boolean,
   edgeFilterRegex: string,
@@ -252,6 +283,8 @@ function filterGraph(
     }
     return visibleNodeTypes[type]
   }
+  const activeStaffRoles = new Set(activeRoleFilters)
+  const roleCategoriesByStaffNodeId = staffNodeRoleCategories(graph)
 
   let nodes = graph.nodes.filter((node) => typeVisible(node.data.type))
   let visibleNodeIds = new Set(nodes.map((node) => String(node.data.id)))
@@ -266,8 +299,33 @@ function filterGraph(
     if (showOnlyMainStudioEdges && isSupportingStudioEdge(edge)) {
       return false
     }
+    if (edge.data.type === 'staff') {
+      const categories = staffEdgeCategories(edge)
+      if (!categories.some((category) => activeStaffRoles.has(category))) {
+        return false
+      }
+    }
     return !edgeFilter || !edgeFilterTargets(edge).some((value) => edgeFilter.test(value))
   })
+
+  const connectedStaffIds = new Set<string>()
+  for (const edge of edges) {
+    for (const endpoint of [edge.data.source, edge.data.target]) {
+      if (typeof endpoint === 'string' && endpoint.startsWith('staff:')) {
+        connectedStaffIds.add(endpoint)
+      }
+    }
+  }
+  nodes = nodes.filter((node) => {
+    const nodeId = String(node.data.id)
+    if (node.data.type !== 'staff') {
+      return true
+    }
+    const primaryCategory = primaryStaffRoleCategory(roleCategoriesByStaffNodeId.get(nodeId))
+    return Boolean(primaryCategory && activeStaffRoles.has(primaryCategory) && connectedStaffIds.has(nodeId))
+  })
+  visibleNodeIds = new Set(nodes.map((node) => String(node.data.id)))
+  edges = edges.filter((edge) => visibleNodeIds.has(String(edge.data.source)) && visibleNodeIds.has(String(edge.data.target)))
 
   if (hideIsolatedNodes) {
     const connectedNodeIds = new Set<string>()
@@ -382,11 +440,10 @@ function App() {
 
   const effectiveActiveFilters = roleFiltersEnabled ? activeFilters : ALL_ROLE_IDS
   const effectiveVisibleNodeTypes = nodeTypeFiltersEnabled ? visibleNodeTypes : DEFAULT_NODE_TYPES
-  const apiFilters = useMemo(() => filtersForApi(effectiveActiveFilters), [effectiveActiveFilters])
   const popularityFilters = useMemo(() => ({ staffMinFavourites, staffLimit }), [staffLimit, staffMinFavourites])
   const displayGraph = useMemo(
-    () => filterGraph(graph, effectiveVisibleNodeTypes, hideIsolatedNodes, showOnlyMainStudioEdges, edgeFilterRegex),
-    [edgeFilterRegex, effectiveVisibleNodeTypes, graph, hideIsolatedNodes, showOnlyMainStudioEdges],
+    () => filterGraph(graph, effectiveVisibleNodeTypes, effectiveActiveFilters, hideIsolatedNodes, showOnlyMainStudioEdges, edgeFilterRegex),
+    [edgeFilterRegex, effectiveActiveFilters, effectiveVisibleNodeTypes, graph, hideIsolatedNodes, showOnlyMainStudioEdges],
   )
   const canCompare = Boolean(sourceAnime && targetAnime && sourceAnime.id !== targetAnime.id)
   const duplicateSelection = Boolean(sourceAnime && targetAnime && sourceAnime.id === targetAnime.id)
@@ -433,8 +490,8 @@ function App() {
       }
     })
     void Promise.all([
-      compareAnime(sourceAnime.id, targetAnime.id, apiFilters, popularityFilters),
-      fetchGraph(sourceAnime.id, targetAnime.id, apiFilters, 2, popularityFilters),
+      compareAnime(sourceAnime.id, targetAnime.id, [], popularityFilters),
+      fetchGraph(sourceAnime.id, targetAnime.id, [], 2, popularityFilters),
     ])
       .then(([nextComparison, nextGraph]) => {
         if (cancelled) return
@@ -457,7 +514,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [apiFilters, popularityFilters, sourceAnime, targetAnime])
+  }, [popularityFilters, sourceAnime, targetAnime])
 
   const clearComparisonState = useCallback(() => {
     setComparison(null)
@@ -658,8 +715,7 @@ function App() {
           <RoleFilters
             activeFilters={activeFilters}
             roleFiltersEnabled={roleFiltersEnabled}
-            comparison={comparison}
-            graph={graph}
+            graph={displayGraph}
             visibleNodeTypes={visibleNodeTypes}
             nodeTypeFiltersEnabled={nodeTypeFiltersEnabled}
             showOnlyMainStudioEdges={showOnlyMainStudioEdges}
@@ -1144,7 +1200,6 @@ function NodeTypeIcon({ type }: { type: NodeDetail['type'] }) {
 function RoleFilters({
   activeFilters,
   roleFiltersEnabled,
-  comparison,
   graph,
   visibleNodeTypes,
   nodeTypeFiltersEnabled,
@@ -1173,7 +1228,6 @@ function RoleFilters({
 }: {
   activeFilters: string[]
   roleFiltersEnabled: boolean
-  comparison: CompareResponse | null
   graph: GraphResponse | null
   visibleNodeTypes: VisibleNodeTypes
   nodeTypeFiltersEnabled: boolean
@@ -1203,16 +1257,18 @@ function RoleFilters({
   const counts = useMemo(() => {
     const next = new Map<string, number>()
     for (const filter of ROLE_FILTERS) next.set(filter.id, 0)
-    for (const staff of comparison?.sharedStaff ?? []) {
-      for (const category of staff.roleCategories) {
+    const categoriesByStaffNodeId = staffNodeRoleCategories(graph)
+    for (const node of graph?.nodes ?? []) {
+      if (node.data.type !== 'staff') {
+        continue
+      }
+      const category = primaryStaffRoleCategory(categoriesByStaffNodeId.get(String(node.data.id)))
+      if (category) {
         next.set(category, (next.get(category) ?? 0) + 1)
       }
     }
-    if ((comparison?.sharedStudios.length ?? 0) > 0) {
-      next.set('studio', comparison?.sharedStudios.length ?? 0)
-    }
     return next
-  }, [comparison])
+  }, [graph])
   const nodeCounts = useMemo(() => {
     const next = new Map<NodeTypeId, number>([
       ['anime', 0],
