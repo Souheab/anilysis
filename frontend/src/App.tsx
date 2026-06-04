@@ -273,8 +273,11 @@ function filterGraph(
   visibleNodeTypes: VisibleNodeTypes,
   activeRoleFilters: string[],
   hideIsolatedNodes: boolean,
+  showOnlySharedComparisonNodes: boolean,
   showOnlyMainStudioEdges: boolean,
   edgeFilterRegex: string,
+  sourceAnime: AnimeSearchResult | null,
+  targetAnime: AnimeSearchResult | null,
 ): GraphResponse | null {
   if (!graph) {
     return null
@@ -329,6 +332,39 @@ function filterGraph(
   })
   visibleNodeIds = new Set(nodes.map((node) => String(node.data.id)))
   edges = edges.filter((edge) => visibleNodeIds.has(String(edge.data.source)) && visibleNodeIds.has(String(edge.data.target)))
+
+  if (showOnlySharedComparisonNodes && sourceAnime && targetAnime) {
+    const sourceNodeId = `anime:${sourceAnime.id}`
+    const targetNodeId = `anime:${targetAnime.id}`
+    const comparisonNodeIds = new Set([sourceNodeId, targetNodeId])
+    const comparisonNeighbors = new Map<string, Set<string>>()
+
+    for (const edge of edges) {
+      const source = String(edge.data.source ?? '')
+      const target = String(edge.data.target ?? '')
+
+      if (comparisonNodeIds.has(source) && !comparisonNodeIds.has(target)) {
+        const neighbors = comparisonNeighbors.get(target) ?? new Set<string>()
+        neighbors.add(source)
+        comparisonNeighbors.set(target, neighbors)
+      } else if (comparisonNodeIds.has(target) && !comparisonNodeIds.has(source)) {
+        const neighbors = comparisonNeighbors.get(source) ?? new Set<string>()
+        neighbors.add(target)
+        comparisonNeighbors.set(source, neighbors)
+      }
+    }
+
+    nodes = nodes.filter((node) => {
+      const nodeId = String(node.data.id)
+      if (comparisonNodeIds.has(nodeId)) {
+        return true
+      }
+      const neighbors = comparisonNeighbors.get(nodeId)
+      return Boolean(neighbors?.has(sourceNodeId) && neighbors.has(targetNodeId))
+    })
+    visibleNodeIds = new Set(nodes.map((node) => String(node.data.id)))
+    edges = edges.filter((edge) => visibleNodeIds.has(String(edge.data.source)) && visibleNodeIds.has(String(edge.data.target)))
+  }
 
   if (hideIsolatedNodes) {
     const connectedNodeIds = new Set<string>()
@@ -430,6 +466,7 @@ function App() {
   const [staffLimit, setStaffLimit] = useState<number | null>(DEFAULT_STAFF_POPULARITY_FILTERS.staffLimit)
   const [showEdgeLabels, setShowEdgeLabels] = useState(true)
   const [hideIsolatedNodes, setHideIsolatedNodes] = useState(true)
+  const [showOnlySharedComparisonNodes, setShowOnlySharedComparisonNodes] = useState(false)
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false)
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false)
   const [showGraphLegend, setShowGraphLegend] = useState(true)
@@ -448,8 +485,29 @@ function App() {
   const effectiveVisibleNodeTypes = nodeTypeFiltersEnabled ? visibleNodeTypes : DEFAULT_NODE_TYPES
   const popularityFilters = useMemo(() => ({ staffMinFavourites, staffLimit }), [staffLimit, staffMinFavourites])
   const displayGraph = useMemo(
-    () => filterGraph(graph, effectiveVisibleNodeTypes, effectiveActiveFilters, hideIsolatedNodes, showOnlyMainStudioEdges, edgeFilterRegex),
-    [edgeFilterRegex, effectiveActiveFilters, effectiveVisibleNodeTypes, graph, hideIsolatedNodes, showOnlyMainStudioEdges],
+    () =>
+      filterGraph(
+        graph,
+        effectiveVisibleNodeTypes,
+        effectiveActiveFilters,
+        hideIsolatedNodes,
+        showOnlySharedComparisonNodes,
+        showOnlyMainStudioEdges,
+        edgeFilterRegex,
+        sourceAnime,
+        targetAnime,
+      ),
+    [
+      edgeFilterRegex,
+      effectiveActiveFilters,
+      effectiveVisibleNodeTypes,
+      graph,
+      hideIsolatedNodes,
+      showOnlyMainStudioEdges,
+      showOnlySharedComparisonNodes,
+      sourceAnime,
+      targetAnime,
+    ],
   )
   const canCompare = Boolean(sourceAnime && targetAnime && sourceAnime.id !== targetAnime.id)
   const duplicateSelection = Boolean(sourceAnime && targetAnime && sourceAnime.id === targetAnime.id)
@@ -610,6 +668,7 @@ function App() {
   const setGraphSettingsActive = (active: boolean) => {
     setShowEdgeLabels(active)
     setHideIsolatedNodes(active)
+    setShowOnlySharedComparisonNodes(active)
   }
 
   const setEdgeTypeFiltersActive = (active: boolean) => {
@@ -628,6 +687,7 @@ function App() {
     setEdgeFilterRegex(DEFAULT_EDGE_FILTER_REGEX)
     setStaffMinFavourites(DEFAULT_STAFF_POPULARITY_FILTERS.staffMinFavourites)
     setStaffLimit(DEFAULT_STAFF_POPULARITY_FILTERS.staffLimit)
+    setShowOnlySharedComparisonNodes(false)
   }
 
   const selectNode = useCallback(async (nodeId: string) => {
@@ -735,6 +795,7 @@ function App() {
             staffLimit={staffLimit}
             showEdgeLabels={showEdgeLabels}
             hideIsolatedNodes={hideIsolatedNodes}
+            showOnlySharedComparisonNodes={showOnlySharedComparisonNodes}
             sectionState={filterSections}
             onToggle={toggleFilter}
             onSetAllRoles={setAllRoleFilters}
@@ -748,6 +809,7 @@ function App() {
             onSetEdgeTypeFiltersActive={setEdgeTypeFiltersActive}
             onShowEdgeLabelsChange={setShowEdgeLabels}
             onHideIsolatedNodesChange={setHideIsolatedNodes}
+            onShowOnlySharedComparisonNodesChange={setShowOnlySharedComparisonNodes}
             onSetGraphSettingsActive={setGraphSettingsActive}
             onToggleSection={setFilterSectionOpen}
             onReset={resetFilters}
@@ -1256,6 +1318,7 @@ function RoleFilters({
   staffLimit,
   showEdgeLabels,
   hideIsolatedNodes,
+  showOnlySharedComparisonNodes,
   sectionState,
   onToggle,
   onSetAllRoles,
@@ -1269,6 +1332,7 @@ function RoleFilters({
   onSetPopularityFiltersActive,
   onShowEdgeLabelsChange,
   onHideIsolatedNodesChange,
+  onShowOnlySharedComparisonNodesChange,
   onSetGraphSettingsActive,
   onToggleSection,
   onReset,
@@ -1284,6 +1348,7 @@ function RoleFilters({
   staffLimit: number | null
   showEdgeLabels: boolean
   hideIsolatedNodes: boolean
+  showOnlySharedComparisonNodes: boolean
   sectionState: FilterSectionState
   onToggle: (id: string) => void
   onSetAllRoles: (active: boolean) => void
@@ -1297,6 +1362,7 @@ function RoleFilters({
   onSetPopularityFiltersActive: (active: boolean) => void
   onShowEdgeLabelsChange: (value: boolean) => void
   onHideIsolatedNodesChange: (value: boolean) => void
+  onShowOnlySharedComparisonNodesChange: (value: boolean) => void
   onSetGraphSettingsActive: (active: boolean) => void
   onToggleSection: (section: FilterSectionId) => void
   onReset: () => void
@@ -1337,7 +1403,7 @@ function RoleFilters({
   const edgeTypeFiltersActive = showOnlyMainStudioEdges || regexEdgeFilterActive
   const edgeFilterRegexInvalid = regexEdgeFilterActive && !compileEdgeFilterRegex(edgeFilterRegex)
   const staffPopularityActive = staffMinFavourites > 0 || staffLimit !== null
-  const graphSettingsActive = showEdgeLabels || hideIsolatedNodes
+  const graphSettingsActive = showEdgeLabels || hideIsolatedNodes || showOnlySharedComparisonNodes
 
   return (
     <section className="filter-section">
@@ -1536,6 +1602,18 @@ function RoleFilters({
               <em>Hide nodes that have no connections</em>
             </span>
             <span className={`switch ${hideIsolatedNodes ? 'on' : ''}`} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="filter-row graph-setting-row"
+            onClick={() => onShowOnlySharedComparisonNodesChange(!showOnlySharedComparisonNodes)}
+          >
+            <ArrowRightLeft size={14} />
+            <span>
+              <strong>Connected to both anime</strong>
+              <em>Only show nodes linked to both compared anime</em>
+            </span>
+            <span className={`switch ${showOnlySharedComparisonNodes ? 'on' : ''}`} aria-hidden="true" />
           </button>
         </div>
       </FilterAccordionSection>
