@@ -384,20 +384,23 @@ button {
   font-weight: 800;
 }
 
-.settings-slider {
+.settings-slider,
+.settings-field {
   display: grid;
   gap: 14px;
   margin-top: 26px;
 }
 
-.settings-slider span {
+.settings-slider span,
+.settings-field span {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 14px;
 }
 
-.settings-slider strong {
+.settings-slider strong,
+.settings-field strong {
   font-size: 15px;
 }
 
@@ -410,6 +413,16 @@ button {
 .settings-slider input {
   width: 100%;
   accent-color: #1d9bf0;
+}
+
+.settings-field select {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #e2e8f0;
+  background: rgba(15, 23, 42, 0.88);
+  font: inherit;
 }
 
 .slot-copy {

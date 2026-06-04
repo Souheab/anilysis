@@ -43,7 +43,7 @@ import {
   type SharedStaff,
   type SharedVoiceActor,
 } from './api'
-import { GraphView, type GraphViewHandle } from './GraphView'
+import { GraphView, type GraphLayout, type GraphViewHandle } from './GraphView'
 
 const ROLE_FILTERS = [
   { id: 'direction', label: 'Director', color: '#b580ff' },
@@ -71,6 +71,12 @@ const DEFAULT_NODE_TYPES = { anime: true, staff: true, voiceActor: true, studio:
 const DEFAULT_SHOW_ONLY_MAIN_STUDIO_EDGES = true
 const DEFAULT_EDGE_FILTER_REGEX = ''
 const DEFAULT_WHEEL_SENSITIVITY = 0.16
+const DEFAULT_GRAPH_LAYOUT: GraphLayout = 'fcose'
+const GRAPH_LAYOUT_OPTIONS: { label: string; value: GraphLayout }[] = [
+  { label: 'fCoSE', value: 'fcose' },
+  { label: 'Cola', value: 'cola' },
+  { label: 'Breadthfirst', value: 'breadthfirst' },
+]
 const MIN_WHEEL_SENSITIVITY = 0.04
 const MAX_WHEEL_SENSITIVITY = 1
 const STAFF_LIMIT_OPTIONS = [
@@ -202,6 +208,26 @@ function initialWheelSensitivity() {
       : DEFAULT_WHEEL_SENSITIVITY
   } catch {
     return DEFAULT_WHEEL_SENSITIVITY
+  }
+}
+
+function isGraphLayout(value: unknown): value is GraphLayout {
+  return value === 'fcose' || value === 'cola' || value === 'breadthfirst'
+}
+
+function initialGraphLayout() {
+  if (typeof window === 'undefined') {
+    return DEFAULT_GRAPH_LAYOUT
+  }
+  try {
+    const saved = window.localStorage.getItem(SETTINGS_STORAGE_KEY)
+    if (!saved) {
+      return DEFAULT_GRAPH_LAYOUT
+    }
+    const parsed = JSON.parse(saved) as Partial<Record<string, unknown>>
+    return isGraphLayout(parsed.graphLayout) ? parsed.graphLayout : DEFAULT_GRAPH_LAYOUT
+  } catch {
+    return DEFAULT_GRAPH_LAYOUT
   }
 }
 
@@ -504,6 +530,7 @@ function App() {
   const [showGraphLegend, setShowGraphLegend] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [wheelSensitivity, setWheelSensitivity] = useState(initialWheelSensitivity)
+  const [graphLayout, setGraphLayout] = useState<GraphLayout>(initialGraphLayout)
   const [filterSections, setFilterSections] = useState<FilterSectionState>(initialFilterSections)
   const [recentComparisons, setRecentComparisons] = useState<RecentComparison[]>(initialRecentComparisons)
   const [recentComparisonsOpen, setRecentComparisonsOpen] = useState(false)
@@ -560,8 +587,8 @@ function App() {
   }, [recentComparisons])
 
   useEffect(() => {
-    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ wheelSensitivity }))
-  }, [wheelSensitivity])
+    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ graphLayout, wheelSensitivity }))
+  }, [graphLayout, wheelSensitivity])
 
   useEffect(() => {
     if (!selectedNodeId || !displayGraph) {
@@ -839,6 +866,7 @@ function App() {
           <GraphView
             ref={graphRef}
             graph={displayGraph}
+            graphLayout={graphLayout}
             showEdgeLabels={showEdgeLabels}
             wheelSensitivity={wheelSensitivity}
             selectedNodeId={selectedNodeId}
@@ -890,7 +918,9 @@ function App() {
       </div>
       <SettingsModal
         open={settingsOpen}
+        graphLayout={graphLayout}
         wheelSensitivity={wheelSensitivity}
+        onGraphLayoutChange={setGraphLayout}
         onWheelSensitivityChange={setWheelSensitivity}
         onClose={() => setSettingsOpen(false)}
       />
@@ -900,12 +930,16 @@ function App() {
 
 function SettingsModal({
   open,
+  graphLayout,
   wheelSensitivity,
+  onGraphLayoutChange,
   onWheelSensitivityChange,
   onClose,
 }: {
   open: boolean
+  graphLayout: GraphLayout
   wheelSensitivity: number
+  onGraphLayoutChange: (value: GraphLayout) => void
   onWheelSensitivityChange: (value: number) => void
   onClose: () => void
 }) {
@@ -954,6 +988,18 @@ function SettingsModal({
             value={wheelSensitivity}
             onChange={(event) => onWheelSensitivityChange(clampWheelSensitivity(Number(event.target.value)))}
           />
+        </label>
+        <label className="settings-field">
+          <span>
+            <strong>Graph layout</strong>
+          </span>
+          <select value={graphLayout} onChange={(event) => onGraphLayoutChange(event.target.value as GraphLayout)}>
+            {GRAPH_LAYOUT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </label>
       </section>
     </div>

@@ -1,10 +1,14 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import cytoscape, { type Core, type ElementDefinition, type LayoutOptions } from 'cytoscape'
+import cola from 'cytoscape-cola'
 import fcose from 'cytoscape-fcose'
 
 import type { GraphResponse } from './api'
 
+cytoscape.use(cola)
 cytoscape.use(fcose)
+
+export type GraphLayout = 'fcose' | 'cola' | 'breadthfirst'
 
 export interface GraphViewHandle {
   zoomIn: () => void
@@ -15,6 +19,7 @@ export interface GraphViewHandle {
 
 interface GraphViewProps {
   graph: GraphResponse | null
+  graphLayout: GraphLayout
   showEdgeLabels: boolean
   wheelSensitivity: number
   selectedNodeId: string | null
@@ -31,7 +36,6 @@ interface MiniNode {
 }
 
 const MINIMAP_ENABLED = false
-const FCOSE_LAYOUT = { name: 'fcose', animate: false, fit: true, padding: 80 } as LayoutOptions
 const STAFF_ICON = `data:image/svg+xml;utf8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><g fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="24" cy="15" r="6"/><path d="M13 36c1.7-7.4 5.4-11 11-11s9.3 3.6 11 11"/></g></svg>',
 )}`
@@ -39,8 +43,12 @@ const VOICE_ACTOR_ICON = `data:image/svg+xml;utf8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><g fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 13a5 5 0 0 1 10 0v8a5 5 0 0 1-10 0z"/><path d="M13 21c0 6 4 10 11 10s11-4 11-10"/><path d="M24 31v6"/><path d="M18 37h12"/></g></svg>',
 )}`
 
+function graphLayoutOptions(name: GraphLayout): LayoutOptions {
+  return { name, animate: false, fit: true, padding: 80 } as LayoutOptions
+}
+
 export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function GraphView(
-  { graph, showEdgeLabels, wheelSensitivity, selectedNodeId, selectedEdgeId, onNodeSelect, onEdgeSelect },
+  { graph, graphLayout, showEdgeLabels, wheelSensitivity, selectedNodeId, selectedEdgeId, onNodeSelect, onEdgeSelect },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -80,9 +88,9 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
     reset: () => {
       const cy = cyRef.current
       if (!cy) return
-      cy.layout(FCOSE_LAYOUT).run()
+      cy.layout(graphLayoutOptions(graphLayout)).run()
     },
-  }))
+  }), [graphLayout])
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -257,7 +265,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
           },
         },
       ],
-      layout: FCOSE_LAYOUT,
+      layout: graphLayoutOptions(graphLayout),
     })
 
     const updateMiniMap = () => {
@@ -289,7 +297,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       cy.destroy()
       cyRef.current = null
     }
-  }, [elements, graph, onEdgeSelect, onNodeSelect, showEdgeLabels, wheelSensitivity])
+  }, [elements, graph, graphLayout, onEdgeSelect, onNodeSelect, showEdgeLabels, wheelSensitivity])
 
   useEffect(() => {
     const cy = cyRef.current
