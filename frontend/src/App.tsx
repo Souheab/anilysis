@@ -65,9 +65,8 @@ const RECENT_COMPARISON_LIMIT = 10
 const ALL_ROLE_IDS = ROLE_FILTERS.map((filter) => filter.id)
 const NO_ROLE_FILTERS_SENTINEL = '__none__'
 const DEFAULT_NODE_TYPES = { anime: true, staff: true, voiceActor: true, studio: true }
-const MAIN_STUDIO_EDGE_FILTER_REGEX = '^Studio$'
 const DEFAULT_SHOW_ONLY_MAIN_STUDIO_EDGES = true
-const DEFAULT_EDGE_FILTER_REGEX = regexFromEdgeTypeToggles(DEFAULT_SHOW_ONLY_MAIN_STUDIO_EDGES)
+const DEFAULT_EDGE_FILTER_REGEX = ''
 const STAFF_LIMIT_OPTIONS = [
   { label: 'Top 10', value: 10 },
   { label: 'Top 20', value: 20 },
@@ -200,10 +199,6 @@ function addRecentComparison(
   ].slice(0, RECENT_COMPARISON_LIMIT)
 }
 
-function regexFromEdgeTypeToggles(showOnlyMainStudio: boolean) {
-  return showOnlyMainStudio ? MAIN_STUDIO_EDGE_FILTER_REGEX : ''
-}
-
 function compileEdgeFilterRegex(pattern: string) {
   const trimmed = pattern.trim()
   if (!trimmed) {
@@ -236,10 +231,15 @@ function edgeFilterTargets(edge: GraphResponse['edges'][number]) {
   return values
 }
 
+function isSupportingStudioEdge(edge: GraphResponse['edges'][number]) {
+  return edge.data.type === 'studio' && edge.data.label === 'Studio'
+}
+
 function filterGraph(
   graph: GraphResponse | null,
   visibleNodeTypes: VisibleNodeTypes,
   hideIsolatedNodes: boolean,
+  showOnlyMainStudioEdges: boolean,
   edgeFilterRegex: string,
 ): GraphResponse | null {
   if (!graph) {
@@ -263,6 +263,9 @@ function filterGraph(
     if (!visible) {
       return false
     }
+    if (showOnlyMainStudioEdges && isSupportingStudioEdge(edge)) {
+      return false
+    }
     return !edgeFilter || !edgeFilterTargets(edge).some((value) => edgeFilter.test(value))
   })
 
@@ -284,6 +287,73 @@ function filterGraph(
   }
 }
 
+function numericDataValue(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function visibleGraphScore(
+  graph: GraphResponse | null,
+  sourceAnime: AnimeSearchResult | null,
+  targetAnime: AnimeSearchResult | null,
+) {
+  if (!graph || !sourceAnime || !targetAnime) {
+    return null
+  }
+
+  const sourceNodeId = `anime:${sourceAnime.id}`
+  const targetNodeId = `anime:${targetAnime.id}`
+  const nodesById = new Map(graph.nodes.map((node) => [String(node.data.id), node]))
+  if (!nodesById.has(sourceNodeId) || !nodesById.has(targetNodeId)) {
+    return null
+  }
+
+  const connectorEdges = new Map<string, { sourceWeight?: number; targetWeight?: number }>()
+  for (const edge of graph.edges) {
+    const source = String(edge.data.source ?? '')
+    const target = String(edge.data.target ?? '')
+    const weight = numericDataValue(edge.data.weight)
+
+    if (source === sourceNodeId && target !== targetNodeId) {
+      connectorEdges.set(target, { ...connectorEdges.get(target), sourceWeight: weight })
+    } else if (target === sourceNodeId && source !== targetNodeId) {
+      connectorEdges.set(source, { ...connectorEdges.get(source), sourceWeight: weight })
+    } else if (source === targetNodeId && target !== sourceNodeId) {
+      connectorEdges.set(target, { ...connectorEdges.get(target), targetWeight: weight })
+    } else if (target === targetNodeId && source !== sourceNodeId) {
+      connectorEdges.set(source, { ...connectorEdges.get(source), targetWeight: weight })
+    }
+  }
+
+  let staffPoints = 0
+  let studioPoints = 0
+  let voiceActorPoints = 0
+  let popularityPoints = 0
+
+  for (const [nodeId, weights] of connectorEdges) {
+    if (weights.sourceWeight === undefined || weights.targetWeight === undefined) {
+      continue
+    }
+    const node = nodesById.get(nodeId)
+    if (!node) {
+      continue
+    }
+
+    const connectorWeight = Math.max(weights.sourceWeight, weights.targetWeight)
+    const favourites = numericDataValue(node.data.favourites)
+    if (node.data.type === 'staff') {
+      staffPoints += connectorWeight * 5
+      popularityPoints += Math.min(favourites, 30_000) / 5_000
+    } else if (node.data.type === 'studio') {
+      studioPoints += (weights.sourceWeight + weights.targetWeight) * 4
+    } else if (node.data.type === 'voiceActor') {
+      voiceActorPoints += connectorWeight * 3
+      popularityPoints += Math.min(favourites, 30_000) / 5_000
+    }
+  }
+
+  return Math.min(100, staffPoints + studioPoints + voiceActorPoints + popularityPoints)
+}
+
 function App() {
   const graphRef = useRef<GraphViewHandle | null>(null)
   const [sourceAnime, setSourceAnime] = useState<AnimeSearchResult | null>(null)
@@ -292,7 +362,6 @@ function App() {
   const [activeFilters, setActiveFilters] = useState(() => ALL_ROLE_IDS)
   const [visibleNodeTypes, setVisibleNodeTypes] = useState<VisibleNodeTypes>(DEFAULT_NODE_TYPES)
   const [showOnlyMainStudioEdges, setShowOnlyMainStudioEdges] = useState(DEFAULT_SHOW_ONLY_MAIN_STUDIO_EDGES)
-  const [editEdgeFilterRegex, setEditEdgeFilterRegex] = useState(false)
   const [edgeFilterRegex, setEdgeFilterRegex] = useState(DEFAULT_EDGE_FILTER_REGEX)
   const [staffMinFavourites, setStaffMinFavourites] = useState(DEFAULT_STAFF_POPULARITY_FILTERS.staffMinFavourites)
   const [staffLimit, setStaffLimit] = useState<number | null>(DEFAULT_STAFF_POPULARITY_FILTERS.staffLimit)
@@ -312,8 +381,8 @@ function App() {
   const apiFilters = useMemo(() => filtersForApi(activeFilters), [activeFilters])
   const popularityFilters = useMemo(() => ({ staffMinFavourites, staffLimit }), [staffLimit, staffMinFavourites])
   const displayGraph = useMemo(
-    () => filterGraph(graph, visibleNodeTypes, hideIsolatedNodes, edgeFilterRegex),
-    [edgeFilterRegex, graph, hideIsolatedNodes, visibleNodeTypes],
+    () => filterGraph(graph, visibleNodeTypes, hideIsolatedNodes, showOnlyMainStudioEdges, edgeFilterRegex),
+    [edgeFilterRegex, graph, hideIsolatedNodes, showOnlyMainStudioEdges, visibleNodeTypes],
   )
   const canCompare = Boolean(sourceAnime && targetAnime && sourceAnime.id !== targetAnime.id)
   const duplicateSelection = Boolean(sourceAnime && targetAnime && sourceAnime.id === targetAnime.id)
@@ -455,14 +524,6 @@ function App() {
 
   const setShowOnlyMainStudioEdgesFilter = (active: boolean) => {
     setShowOnlyMainStudioEdges(active)
-    setEdgeFilterRegex(regexFromEdgeTypeToggles(active))
-  }
-
-  const setEditEdgeFilterRegexActive = (active: boolean) => {
-    setEditEdgeFilterRegex(active)
-    if (!active) {
-      setEdgeFilterRegex(regexFromEdgeTypeToggles(showOnlyMainStudioEdges))
-    }
   }
 
   const setFilterSectionOpen = (section: FilterSectionId) => {
@@ -486,13 +547,14 @@ function App() {
 
   const setEdgeTypeFiltersActive = (active: boolean) => {
     setShowOnlyMainStudioEdges(active)
-    setEdgeFilterRegex(active ? DEFAULT_EDGE_FILTER_REGEX : '')
+    if (!active) {
+      setEdgeFilterRegex('')
+    }
   }
 
   const resetFilters = () => {
     setActiveFilters(ALL_ROLE_IDS)
     setShowOnlyMainStudioEdges(DEFAULT_SHOW_ONLY_MAIN_STUDIO_EDGES)
-    setEditEdgeFilterRegex(false)
     setEdgeFilterRegex(DEFAULT_EDGE_FILTER_REGEX)
     setStaffMinFavourites(DEFAULT_STAFF_POPULARITY_FILTERS.staffMinFavourites)
     setStaffLimit(DEFAULT_STAFF_POPULARITY_FILTERS.staffLimit)
@@ -550,7 +612,14 @@ function App() {
             onToggle={() => setRecentComparisonsOpen((current) => !current)}
             onSelect={restoreRecentComparison}
           />
-          <ConnectionScore comparison={comparison} loading={isComparing} canCompare={canCompare} />
+          <ConnectionScore
+            comparison={comparison}
+            graph={displayGraph}
+            sourceAnime={sourceAnime}
+            targetAnime={targetAnime}
+            loading={isComparing}
+            canCompare={canCompare}
+          />
           <TopSharedStaff items={comparison?.sharedStaff ?? []} onSelect={(staff) => void selectNode(`staff:${staff.staffId}`)} />
           <TopSharedVoiceActors items={comparison?.sharedVoiceActors ?? []} onSelect={(actor) => void selectNode(`voice_actor:${actor.voiceActorId}`)} />
         </aside>
@@ -585,7 +654,6 @@ function App() {
             graph={graph}
             visibleNodeTypes={visibleNodeTypes}
             showOnlyMainStudioEdges={showOnlyMainStudioEdges}
-            editEdgeFilterRegex={editEdgeFilterRegex}
             edgeFilterRegex={edgeFilterRegex}
             staffMinFavourites={staffMinFavourites}
             staffLimit={staffLimit}
@@ -597,7 +665,6 @@ function App() {
             onToggleNodeType={toggleNodeType}
             onSetAllNodeTypes={setAllNodeTypes}
             onShowOnlyMainStudioEdgesChange={setShowOnlyMainStudioEdgesFilter}
-            onEditEdgeFilterRegexChange={setEditEdgeFilterRegexActive}
             onEdgeFilterRegexChange={setEdgeFilterRegex}
             onMinFavouritesChange={setStaffMinFavourites}
             onStaffLimitChange={setStaffLimit}
@@ -834,9 +901,24 @@ function RecentComparisons({
   )
 }
 
-function ConnectionScore({ comparison, loading, canCompare }: { comparison: CompareResponse | null; loading: boolean; canCompare: boolean }) {
-  const score = Math.round(comparison?.score ?? 0)
-  const tooltipText = 'Connection score based on shared staff, cast, and studio connections'
+function ConnectionScore({
+  comparison,
+  graph,
+  sourceAnime,
+  targetAnime,
+  loading,
+  canCompare,
+}: {
+  comparison: CompareResponse | null
+  graph: GraphResponse | null
+  sourceAnime: AnimeSearchResult | null
+  targetAnime: AnimeSearchResult | null
+  loading: boolean
+  canCompare: boolean
+}) {
+  const realScore = Math.round(comparison?.score ?? 0)
+  const graphScore = visibleGraphScore(graph, sourceAnime, targetAnime)
+  const tooltipText = 'Real score uses the full comparison result. Visible graph score is recalculated from the graph currently on screen after filters.'
   return (
     <section className="score-card">
       <div className="score-title">
@@ -850,9 +932,18 @@ function ConnectionScore({ comparison, loading, canCompare }: { comparison: Comp
         <div className="loading-row"><Loader2 className="spin" size={18} /> Comparing creative DNA...</div>
       ) : (
         <>
-          <div className="score-row">
-            <strong>{comparison ? `${score}%` : '--'}</strong>
-          </div>
+          {comparison ? (
+            <div className="score-grid">
+              <div className="score-row">
+                <span>Real Score</span>
+                <strong>{`${realScore}%`}</strong>
+              </div>
+              <div className="score-row">
+                <span>Visible Graph Score</span>
+                <strong>{graphScore === null ? '--' : `${Math.round(graphScore)}%`}</strong>
+              </div>
+            </div>
+          ) : null}
           {!comparison ? <p>{canCompare ? 'Comparison will run automatically.' : 'Choose two anime to compare.'}</p> : null}
         </>
       )}
@@ -1029,7 +1120,6 @@ function RoleFilters({
   graph,
   visibleNodeTypes,
   showOnlyMainStudioEdges,
-  editEdgeFilterRegex,
   edgeFilterRegex,
   staffMinFavourites,
   staffLimit,
@@ -1041,7 +1131,6 @@ function RoleFilters({
   onToggleNodeType,
   onSetAllNodeTypes,
   onShowOnlyMainStudioEdgesChange,
-  onEditEdgeFilterRegexChange,
   onEdgeFilterRegexChange,
   onMinFavouritesChange,
   onStaffLimitChange,
@@ -1058,7 +1147,6 @@ function RoleFilters({
   graph: GraphResponse | null
   visibleNodeTypes: VisibleNodeTypes
   showOnlyMainStudioEdges: boolean
-  editEdgeFilterRegex: boolean
   edgeFilterRegex: string
   staffMinFavourites: number
   staffLimit: number | null
@@ -1070,7 +1158,6 @@ function RoleFilters({
   onToggleNodeType: (id: NodeTypeId) => void
   onSetAllNodeTypes: (active: boolean) => void
   onShowOnlyMainStudioEdgesChange: (value: boolean) => void
-  onEditEdgeFilterRegexChange: (value: boolean) => void
   onEdgeFilterRegexChange: (value: string) => void
   onMinFavouritesChange: (value: number) => void
   onStaffLimitChange: (value: number | null) => void
@@ -1112,8 +1199,9 @@ function RoleFilters({
   }, [graph])
   const rolesActive = activeFilters.length > 0
   const nodeTypesActive = Object.values(visibleNodeTypes).some(Boolean)
-  const edgeTypeFiltersActive = edgeFilterRegex.trim().length > 0
-  const edgeFilterRegexInvalid = edgeTypeFiltersActive && !compileEdgeFilterRegex(edgeFilterRegex)
+  const regexEdgeFilterActive = edgeFilterRegex.trim().length > 0
+  const edgeTypeFiltersActive = showOnlyMainStudioEdges || regexEdgeFilterActive
+  const edgeFilterRegexInvalid = regexEdgeFilterActive && !compileEdgeFilterRegex(edgeFilterRegex)
   const staffPopularityActive = staffMinFavourites > 0 || staffLimit !== null
   const graphSettingsActive = showEdgeLabels || hideIsolatedNodes
 
@@ -1180,7 +1268,7 @@ function RoleFilters({
       <FilterAccordionSection
         id="edges"
         title="Filter by Edge Type"
-        subtitle="Hide edges that match a regex"
+        subtitle="Show main studios or hide regex matches"
         icon={<CircleDotDashed size={18} />}
         iconTone="green"
         open={sectionState.edges}
@@ -1189,11 +1277,10 @@ function RoleFilters({
         onToggleActive={() => onSetEdgeTypeFiltersActive(!edgeTypeFiltersActive)}
       >
         <div className="edge-filter-controls">
-          <div className={`filter-list ${editEdgeFilterRegex ? 'disabled' : ''}`}>
+          <div className="filter-list">
             <button
               type="button"
               className="filter-row graph-setting-row"
-              disabled={editEdgeFilterRegex}
               onClick={() => onShowOnlyMainStudioEdgesChange(!showOnlyMainStudioEdges)}
             >
               <Building2 size={14} />
@@ -1205,23 +1292,12 @@ function RoleFilters({
             </button>
           </div>
 
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={editEdgeFilterRegex}
-              onChange={(event) => onEditEdgeFilterRegexChange(event.target.checked)}
-            />
-            <span>Edit regex directly</span>
-          </label>
-
           <label className="regex-control" htmlFor="edge-filter-regex">
             <span>Filtered edge regex</span>
             <input
               id="edge-filter-regex"
               type="text"
               value={edgeFilterRegex}
-              readOnly={!editEdgeFilterRegex}
-              disabled={!editEdgeFilterRegex}
               placeholder="No edge filter"
               onChange={(event) => onEdgeFilterRegexChange(event.target.value)}
             />
