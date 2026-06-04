@@ -70,8 +70,8 @@ export interface StaffPopularityFilters {
 }
 
 export const DEFAULT_STAFF_POPULARITY_FILTERS: StaffPopularityFilters = {
-  staffMinFavourites: 100,
-  staffLimit: 20,
+  staffMinFavourites: 0,
+  staffLimit: 40,
 }
 
 export interface CytoscapeElement {

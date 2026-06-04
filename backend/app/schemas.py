@@ -41,8 +41,8 @@ class CompareRequest(BaseModel):
     sourceAnimeId: int
     targetAnimeId: int
     roleFilters: list[str] = Field(default_factory=list)
-    staffMinFavourites: int = Field(default=100, ge=0)
-    staffLimit: int | None = Field(default=20, ge=1, le=200)
+    staffMinFavourites: int = Field(default=0, ge=0)
+    staffLimit: int | None = Field(default=40, ge=1, le=200)
 
 
 class GraphRequest(CompareRequest):

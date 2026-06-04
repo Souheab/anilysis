@@ -33,8 +33,8 @@ class GraphService:
         source_id: int,
         target_id: int,
         role_filters: list[str] | None,
-        staff_min_favourites: int = 100,
-        staff_limit: int | None = 20,
+        staff_min_favourites: int = 0,
+        staff_limit: int | None = 40,
     ) -> CompareResponse:
         source = self._get_anime(session, source_id)
         target = self._get_anime(session, target_id)
@@ -62,8 +62,8 @@ class GraphService:
         target_id: int,
         role_filters: list[str] | None,
         max_depth: int,
-        staff_min_favourites: int = 100,
-        staff_limit: int | None = 20,
+        staff_min_favourites: int = 0,
+        staff_limit: int | None = 40,
     ) -> GraphResponse:
         allowed_staff_ids = self._allowed_staff_ids(session, staff_min_favourites, staff_limit)
         graph = self._build_graph(session, role_filters, allowed_staff_ids, anime_ids={source_id, target_id})
