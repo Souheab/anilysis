@@ -5,16 +5,19 @@ import {
   ChevronDown,
   CircleDotDashed,
   Cuboid,
+  Eye,
+  EyeOff,
   Film,
   Flame,
   Focus,
-  Hand,
   Info,
   Loader2,
-  Maximize2,
   Mic2,
-  MousePointer2,
   Network,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Plus,
   RotateCcw,
   Search,
@@ -427,6 +430,9 @@ function App() {
   const [staffLimit, setStaffLimit] = useState<number | null>(DEFAULT_STAFF_POPULARITY_FILTERS.staffLimit)
   const [showEdgeLabels, setShowEdgeLabels] = useState(true)
   const [hideIsolatedNodes, setHideIsolatedNodes] = useState(true)
+  const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false)
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false)
+  const [showGraphLegend, setShowGraphLegend] = useState(true)
   const [filterSections, setFilterSections] = useState<FilterSectionState>(initialFilterSections)
   const [recentComparisons, setRecentComparisons] = useState<RecentComparison[]>(initialRecentComparisons)
   const [recentComparisonsOpen, setRecentComparisonsOpen] = useState(false)
@@ -656,8 +662,8 @@ function App() {
         />
       </header>
 
-      <div className="workspace">
-        <aside className="left-panel panel">
+      <div className={`workspace ${leftPanelCollapsed ? 'left-collapsed' : ''} ${rightPanelCollapsed ? 'right-collapsed' : ''}`}>
+        <aside className={`left-panel panel ${leftPanelCollapsed ? 'collapsed' : ''}`}>
           <PanelHeader
             title="Compare Anime"
             action={<button type="button" className="icon-button-ghost" onClick={swapAnime} aria-label="Swap anime"><ArrowRightLeft size={18} /></button>}
@@ -692,9 +698,14 @@ function App() {
           <GraphToolbar
             loading={isComparing}
             nodeCount={displayGraph?.nodes.length ?? 0}
+            leftPanelCollapsed={leftPanelCollapsed}
+            rightPanelCollapsed={rightPanelCollapsed}
+            showLegend={showGraphLegend}
+            onToggleLeftPanel={() => setLeftPanelCollapsed((current) => !current)}
+            onToggleRightPanel={() => setRightPanelCollapsed((current) => !current)}
+            onToggleLegend={() => setShowGraphLegend((current) => !current)}
             onZoomIn={() => graphRef.current?.zoomIn()}
             onZoomOut={() => graphRef.current?.zoomOut()}
-            onFit={() => graphRef.current?.fit()}
             onReset={() => graphRef.current?.reset()}
           />
           <GraphView
@@ -704,10 +715,10 @@ function App() {
             selectedNodeId={selectedNodeId}
             onNodeSelect={selectNode}
           />
-          <GraphLegend />
+          {showGraphLegend ? <GraphLegend /> : null}
         </section>
 
-        <aside className="right-panel panel">
+        <aside className={`right-panel panel ${rightPanelCollapsed ? 'collapsed' : ''}`}>
           <DetailPanel detail={nodeDetail} loading={isLoadingNode} onClose={() => {
             setNodeDetail(null)
             setSelectedNodeId(null)
@@ -1082,26 +1093,62 @@ function TopSharedVoiceActors({ items, onSelect }: { items: SharedVoiceActor[]; 
 function GraphToolbar({
   loading,
   nodeCount,
+  leftPanelCollapsed,
+  rightPanelCollapsed,
+  showLegend,
+  onToggleLeftPanel,
+  onToggleRightPanel,
+  onToggleLegend,
   onZoomIn,
   onZoomOut,
-  onFit,
   onReset,
 }: {
   loading: boolean
   nodeCount: number
+  leftPanelCollapsed: boolean
+  rightPanelCollapsed: boolean
+  showLegend: boolean
+  onToggleLeftPanel: () => void
+  onToggleRightPanel: () => void
+  onToggleLegend: () => void
   onZoomIn: () => void
   onZoomOut: () => void
-  onFit: () => void
   onReset: () => void
 }) {
   return (
     <div className="graph-toolbar">
       <div className="tool-cluster">
-        <button type="button" className="tool-button active" title="Select"><MousePointer2 size={18} /></button>
-        <button type="button" className="tool-button" title="Pan"><Hand size={18} /></button>
-        <button type="button" className="tool-button" title="Fit view" onClick={onFit}><Maximize2 size={18} /></button>
+        <button
+          type="button"
+          className="tool-button"
+          title={leftPanelCollapsed ? 'Show left panel' : 'Collapse left panel'}
+          aria-pressed={leftPanelCollapsed}
+          onClick={onToggleLeftPanel}
+        >
+          {leftPanelCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+        </button>
+        <button
+          type="button"
+          className="tool-button"
+          title={rightPanelCollapsed ? 'Show right panel' : 'Collapse right panel'}
+          aria-pressed={rightPanelCollapsed}
+          onClick={onToggleRightPanel}
+        >
+          {rightPanelCollapsed ? <PanelRightOpen size={18} /> : <PanelRightClose size={18} />}
+        </button>
+      </div>
+      <div className="tool-cluster">
         <button type="button" className="tool-button" title="Zoom in" onClick={onZoomIn}><ZoomIn size={18} /></button>
         <button type="button" className="tool-button" title="Zoom out" onClick={onZoomOut}><ZoomOut size={18} /></button>
+        <button
+          type="button"
+          className={`tool-button ${showLegend ? 'active' : ''}`}
+          title={showLegend ? 'Hide legend' : 'Show legend'}
+          aria-pressed={showLegend}
+          onClick={onToggleLegend}
+        >
+          {showLegend ? <Eye size={18} /> : <EyeOff size={18} />}
+        </button>
       </div>
       <div className="tool-cluster">
         {loading ? <span className="graph-loading"><Loader2 className="spin" size={16} /> Loading</span> : <span className="node-count">{nodeCount} nodes</span>}
