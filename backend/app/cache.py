@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 
 from fastapi import HTTPException
@@ -17,6 +18,7 @@ CACHE_TTL = timedelta(days=7)
 class AnimeCacheService:
     def __init__(self, client: AniListClient | None = None) -> None:
         self.client = client or AniListClient()
+        self._load_locks: dict[int, asyncio.Lock] = {}
 
     async def search_anime(self, session: Session, query: str) -> list[AnimeSearchResult]:
         if len(query.strip()) < 2:
@@ -41,6 +43,14 @@ class AnimeCacheService:
         cached = session.get(Anime, anime_id)
         if cached and not force and self._is_fresh(cached):
             return cached
+        lock = self._load_locks.setdefault(anime_id, asyncio.Lock())
+        async with lock:
+            cached = session.get(Anime, anime_id)
+            if cached and not force and self._is_fresh(cached):
+                return cached
+            return await self._load_anime(session, anime_id)
+
+    async def _load_anime(self, session: Session, anime_id: int) -> Anime:
         try:
             anime_data = await self.client.fetch_anime(anime_id)
             staff_data = await self.client.fetch_staff(anime_id)

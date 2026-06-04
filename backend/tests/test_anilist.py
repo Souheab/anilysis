@@ -75,6 +75,32 @@ async def test_anilist_retries_transient_error(httpx_mock):
 
 
 @pytest.mark.asyncio
+async def test_anilist_reports_transient_status_after_retries(httpx_mock):
+    httpx_mock.add_response(url=ANILIST_ENDPOINT, status_code=429, text="Too Many Requests")
+    httpx_mock.add_response(url=ANILIST_ENDPOINT, status_code=429, text="Too Many Requests")
+    httpx_mock.add_response(url=ANILIST_ENDPOINT, status_code=429, text="Too Many Requests")
+
+    with pytest.raises(AniListError) as exc_info:
+        await AniListClient(transient_retry_delay=0, error_retry_delay=0).search_anime("busy")
+
+    message = str(exc_info.value)
+    assert "AniList request failed: AniList rate limited: HTTP 429" in message
+    assert "None" not in message
+
+
+@pytest.mark.asyncio
+async def test_anilist_reports_non_json_response(httpx_mock):
+    httpx_mock.add_response(url=ANILIST_ENDPOINT, status_code=403, text="Forbidden")
+    httpx_mock.add_response(url=ANILIST_ENDPOINT, status_code=403, text="Forbidden")
+    httpx_mock.add_response(url=ANILIST_ENDPOINT, status_code=403, text="Forbidden")
+
+    with pytest.raises(AniListError) as exc_info:
+        await AniListClient(transient_retry_delay=0, error_retry_delay=0).search_anime("blocked")
+
+    assert "AniList returned a non-JSON response: HTTP 403: Forbidden" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
 async def test_fetch_studios_normalizes_non_paginated_connection(httpx_mock):
     httpx_mock.add_response(
         url=ANILIST_ENDPOINT,

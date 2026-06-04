@@ -114,9 +114,17 @@ query AnimeVoiceActors($id: Int!, $page: Int!, $perPage: Int!) {
 
 
 class AniListClient:
-    def __init__(self, endpoint: str = ANILIST_ENDPOINT, timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        endpoint: str = ANILIST_ENDPOINT,
+        timeout: float = 30.0,
+        transient_retry_delay: float = 0.5,
+        error_retry_delay: float = 0.3,
+    ) -> None:
         self.endpoint = endpoint
         self.timeout = timeout
+        self.transient_retry_delay = transient_retry_delay
+        self.error_retry_delay = error_retry_delay
 
     async def _graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
         last_error: Exception | None = None
@@ -125,17 +133,35 @@ class AniListClient:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     response = await client.post(self.endpoint, json={"query": query, "variables": variables})
                 if response.status_code == 429 or 500 <= response.status_code < 600:
-                    await asyncio.sleep(0.5 * (attempt + 1))
+                    last_error = AniListError(self._format_response_error(response))
+                    await asyncio.sleep(self.transient_retry_delay * (attempt + 1))
                     continue
-                payload = response.json()
+                try:
+                    payload = response.json()
+                except ValueError as exc:
+                    raise AniListError(self._format_response_error(response, "returned a non-JSON response")) from exc
                 if payload.get("errors"):
                     raise AniListError(str(payload["errors"]))
                 response.raise_for_status()
+                if "data" not in payload:
+                    raise AniListError("AniList response did not include a data field")
                 return payload["data"]
             except (httpx.HTTPError, AniListError) as exc:
                 last_error = exc
-                await asyncio.sleep(0.3 * (attempt + 1))
+                await asyncio.sleep(self.error_retry_delay * (attempt + 1))
         raise AniListError(f"AniList request failed: {last_error}") from last_error
+
+    def _format_response_error(self, response: httpx.Response, reason: str | None = None) -> str:
+        status = f"HTTP {response.status_code}"
+        label = "rate limited" if response.status_code == 429 else "request failed"
+        if reason:
+            label = reason
+        body = response.text.strip().replace("\n", " ")
+        if len(body) > 160:
+            body = f"{body[:157]}..."
+        if body:
+            return f"AniList {label}: {status}: {body}"
+        return f"AniList {label}: {status}"
 
     async def search_anime(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
         data = await self._graphql(SEARCH_ANIME_QUERY, {"search": query, "page": 1, "perPage": limit})
