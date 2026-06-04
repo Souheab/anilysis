@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowRightLeft,
   Building2,
@@ -91,12 +91,18 @@ type NodeTypeId = (typeof NODE_TYPE_FILTERS)[number]['id']
 type VisibleNodeTypes = Record<NodeTypeId, boolean>
 type FilterSectionId = 'roles' | 'nodes' | 'edges' | 'favourites' | 'graph'
 type FilterSectionState = Record<FilterSectionId, boolean>
+type ResizePanel = 'left' | 'right'
 type RecentComparison = {
   sourceAnime: AnimeSearchResult
   targetAnime: AnimeSearchResult
   comparedAt: string
 }
 type GraphEdge = GraphResponse['edges'][number]
+
+const DEFAULT_LEFT_PANEL_WIDTH = 420
+const DEFAULT_RIGHT_PANEL_WIDTH = 390
+const MIN_PANEL_WIDTH = 300
+const MAX_PANEL_WIDTH = 640
 
 function titleFor(anime: AnimeSearchResult) {
   return anime.titleEnglish || anime.titleRomaji
@@ -333,6 +339,7 @@ function filterGraph(
   hideIsolatedNodes: boolean,
   showOnlySharedComparisonNodes: boolean,
   showOnlyMainStudioEdges: boolean,
+  highlightAllPaths: boolean,
   edgeFilterRegex: string,
   sourceAnime: AnimeSearchResult | null,
   targetAnime: AnimeSearchResult | null,
@@ -435,11 +442,79 @@ function filterGraph(
     edges = edges.filter((edge) => visibleNodeIds.has(String(edge.data.source)) && visibleNodeIds.has(String(edge.data.target)))
   }
 
+  const allPathHighlights =
+    highlightAllPaths && sourceAnime && targetAnime
+      ? connectedHighlights(edges, `anime:${sourceAnime.id}`, `anime:${targetAnime.id}`)
+      : null
+  const highlightedPath = allPathHighlights
+    ? nodes.map((node) => String(node.data.id)).filter((nodeId) => allPathHighlights.nodeIds.has(nodeId))
+    : graph.highlightedPath.filter((nodeId) => visibleNodeIds.has(nodeId))
+
   return {
-    nodes,
-    edges,
-    highlightedPath: graph.highlightedPath.filter((nodeId) => visibleNodeIds.has(nodeId)),
+    nodes: nodes.map((node) => ({
+      ...node,
+      classes: allPathHighlights?.nodeIds.has(String(node.data.id)) ? addClassName(node.classes, 'highlighted') : node.classes,
+    })),
+    edges: edges.map((edge) => ({
+      ...edge,
+      classes: allPathHighlights?.edgeIds.has(String(edge.data.id)) ? addClassName(edge.classes, 'highlighted') : edge.classes,
+    })),
+    highlightedPath,
   }
+}
+
+function connectedHighlights(edges: GraphResponse['edges'], sourceNodeId: string, targetNodeId: string) {
+  const adjacency = new Map<string, Set<string>>()
+  for (const edge of edges) {
+    const source = typeof edge.data.source === 'string' ? edge.data.source : ''
+    const target = typeof edge.data.target === 'string' ? edge.data.target : ''
+    if (!source || !target) {
+      continue
+    }
+    const sourceNeighbors = adjacency.get(source) ?? new Set<string>()
+    const targetNeighbors = adjacency.get(target) ?? new Set<string>()
+    sourceNeighbors.add(target)
+    targetNeighbors.add(source)
+    adjacency.set(source, sourceNeighbors)
+    adjacency.set(target, targetNeighbors)
+  }
+
+  const nodeIds = new Set<string>()
+  const queue = [sourceNodeId]
+  for (let index = 0; index < queue.length; index += 1) {
+    const nodeId = queue[index]
+    if (nodeIds.has(nodeId)) {
+      continue
+    }
+    nodeIds.add(nodeId)
+    for (const neighborId of adjacency.get(nodeId) ?? []) {
+      queue.push(neighborId)
+    }
+  }
+
+  if (!nodeIds.has(targetNodeId)) {
+    return { nodeIds: new Set<string>(), edgeIds: new Set<string>() }
+  }
+
+  const edgeIds = new Set<string>()
+  for (const edge of edges) {
+    const source = typeof edge.data.source === 'string' ? edge.data.source : ''
+    const target = typeof edge.data.target === 'string' ? edge.data.target : ''
+    if (nodeIds.has(source) && nodeIds.has(target)) {
+      edgeIds.add(String(edge.data.id))
+    }
+  }
+  return { nodeIds, edgeIds }
+}
+
+function addClassName(classes: string, className: string) {
+  const classNames = new Set(classes.split(/\s+/).filter(Boolean))
+  classNames.add(className)
+  return Array.from(classNames).join(' ')
+}
+
+function clampPanelWidth(value: number) {
+  return Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, value))
 }
 
 function numericDataValue(value: unknown) {
@@ -525,9 +600,13 @@ function App() {
   const [showEdgeLabels, setShowEdgeLabels] = useState(true)
   const [hideIsolatedNodes, setHideIsolatedNodes] = useState(true)
   const [showOnlySharedComparisonNodes, setShowOnlySharedComparisonNodes] = useState(false)
+  const [highlightAllPaths, setHighlightAllPaths] = useState(false)
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false)
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false)
+  const [leftPanelWidth, setLeftPanelWidth] = useState(DEFAULT_LEFT_PANEL_WIDTH)
+  const [rightPanelWidth, setRightPanelWidth] = useState(DEFAULT_RIGHT_PANEL_WIDTH)
   const [showGraphLegend, setShowGraphLegend] = useState(true)
+  const [filtersOpen, setFiltersOpen] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [wheelSensitivity, setWheelSensitivity] = useState(initialWheelSensitivity)
   const [graphLayout, setGraphLayout] = useState<GraphLayout>(initialGraphLayout)
@@ -555,6 +634,7 @@ function App() {
         hideIsolatedNodes,
         showOnlySharedComparisonNodes,
         showOnlyMainStudioEdges,
+        highlightAllPaths,
         edgeFilterRegex,
         sourceAnime,
         targetAnime,
@@ -565,6 +645,7 @@ function App() {
       effectiveVisibleNodeTypes,
       graph,
       hideIsolatedNodes,
+      highlightAllPaths,
       showOnlyMainStudioEdges,
       showOnlySharedComparisonNodes,
       sourceAnime,
@@ -756,6 +837,34 @@ function App() {
     setShowOnlySharedComparisonNodes(active)
   }
 
+  const startPanelResize = (panel: ResizePanel, event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    const startX = event.clientX
+    const startWidth = panel === 'left' ? leftPanelWidth : rightPanelWidth
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const delta = moveEvent.clientX - startX
+      const nextWidth = panel === 'left' ? startWidth + delta : startWidth - delta
+      if (panel === 'left') {
+        setLeftPanelWidth(clampPanelWidth(nextWidth))
+      } else {
+        setRightPanelWidth(clampPanelWidth(nextWidth))
+      }
+      graphRef.current?.fit()
+    }
+
+    const handlePointerUp = () => {
+      document.body.classList.remove('panel-resizing')
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+      graphRef.current?.fit()
+    }
+
+    document.body.classList.add('panel-resizing')
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+  }
+
   const setEdgeTypeFiltersActive = (active: boolean) => {
     setShowOnlyMainStudioEdges(active)
     if (!active) {
@@ -820,7 +929,15 @@ function App() {
         </div>
       </header>
 
-      <div className={`workspace ${leftPanelCollapsed ? 'left-collapsed' : ''} ${rightPanelCollapsed ? 'right-collapsed' : ''}`}>
+      <div
+        className={`workspace ${leftPanelCollapsed ? 'left-collapsed' : ''} ${rightPanelCollapsed ? 'right-collapsed' : ''}`}
+        style={
+          {
+            '--left-panel-width': `${leftPanelWidth}px`,
+            '--right-panel-width': `${rightPanelWidth}px`,
+          } as CSSProperties
+        }
+      >
         <aside className={`left-panel panel ${leftPanelCollapsed ? 'collapsed' : ''}`}>
           <PanelHeader title="Compare Anime" />
           <div className="anime-slots">
@@ -847,6 +964,12 @@ function App() {
           />
           <TopSharedStaff items={comparison?.sharedStaff ?? []} onSelect={(staff) => void selectNode(`staff:${staff.staffId}`)} />
           <TopSharedVoiceActors items={comparison?.sharedVoiceActors ?? []} onSelect={(actor) => void selectNode(`voice_actor:${actor.voiceActorId}`)} />
+          <button
+            type="button"
+            className="panel-resize-handle left"
+            aria-label="Resize left panel"
+            onPointerDown={(event) => startPanelResize('left', event)}
+          />
         </aside>
 
         <section className="graph-panel">
@@ -878,12 +1001,19 @@ function App() {
         </section>
 
         <aside className={`right-panel panel ${rightPanelCollapsed ? 'collapsed' : ''}`}>
+          <button
+            type="button"
+            className="panel-resize-handle right"
+            aria-label="Resize right panel"
+            onPointerDown={(event) => startPanelResize('right', event)}
+          />
           <DetailPanel detail={nodeDetail} edge={selectedEdge} graph={displayGraph} loading={isLoadingNode} onClose={() => {
             setNodeDetail(null)
             setSelectedNodeId(null)
             setSelectedEdgeId(null)
           }} />
           <RoleFilters
+            open={filtersOpen}
             activeFilters={activeFilters}
             roleFiltersEnabled={roleFiltersEnabled}
             graph={displayGraph}
@@ -896,7 +1026,9 @@ function App() {
             showEdgeLabels={showEdgeLabels}
             hideIsolatedNodes={hideIsolatedNodes}
             showOnlySharedComparisonNodes={showOnlySharedComparisonNodes}
+            highlightAllPaths={highlightAllPaths}
             sectionState={filterSections}
+            onToggleOpen={() => setFiltersOpen((current) => !current)}
             onToggle={toggleFilter}
             onSetAllRoles={setAllRoleFilters}
             onToggleNodeType={toggleNodeType}
@@ -910,6 +1042,7 @@ function App() {
             onShowEdgeLabelsChange={setShowEdgeLabels}
             onHideIsolatedNodesChange={setHideIsolatedNodes}
             onShowOnlySharedComparisonNodesChange={setShowOnlySharedComparisonNodes}
+            onHighlightAllPathsChange={setHighlightAllPaths}
             onSetGraphSettingsActive={setGraphSettingsActive}
             onToggleSection={setFilterSectionOpen}
             onReset={resetFilters}
@@ -1276,13 +1409,11 @@ function ConnectionScore({
 }
 
 function TopSharedStaff({ items, onSelect }: { items: SharedStaff[]; onSelect: (staff: SharedStaff) => void }) {
-  const [expanded, setExpanded] = useState(false)
+  const itemsKey = useMemo(() => items.map((item) => item.staffId).join(':'), [items])
+  const [expandedState, setExpandedState] = useState({ itemsKey: '', expanded: false })
+  const expanded = expandedState.itemsKey === itemsKey ? expandedState.expanded : false
   const visibleItems = expanded ? items : items.slice(0, 5)
   const hasFullList = items.length > 5
-
-  useEffect(() => {
-    setExpanded(false)
-  }, [items])
 
   return (
     <section className="staff-card">
@@ -1305,7 +1436,12 @@ function TopSharedStaff({ items, onSelect }: { items: SharedStaff[]; onSelect: (
         <button
           type="button"
           className="full-list-button"
-          onClick={() => setExpanded((current) => !current)}
+          onClick={() =>
+            setExpandedState((current) => ({
+              itemsKey,
+              expanded: current.itemsKey === itemsKey ? !current.expanded : true,
+            }))
+          }
           aria-expanded={expanded}
         >
           {expanded ? 'Show top shared staff' : `View full shared staff list (${items.length})`}
@@ -1551,6 +1687,7 @@ function NodeTypeIcon({ type }: { type: NodeDetail['type'] }) {
 }
 
 function RoleFilters({
+  open,
   activeFilters,
   roleFiltersEnabled,
   graph,
@@ -1563,7 +1700,9 @@ function RoleFilters({
   showEdgeLabels,
   hideIsolatedNodes,
   showOnlySharedComparisonNodes,
+  highlightAllPaths,
   sectionState,
+  onToggleOpen,
   onToggle,
   onSetAllRoles,
   onToggleNodeType,
@@ -1577,10 +1716,12 @@ function RoleFilters({
   onShowEdgeLabelsChange,
   onHideIsolatedNodesChange,
   onShowOnlySharedComparisonNodesChange,
+  onHighlightAllPathsChange,
   onSetGraphSettingsActive,
   onToggleSection,
   onReset,
 }: {
+  open: boolean
   activeFilters: string[]
   roleFiltersEnabled: boolean
   graph: GraphResponse | null
@@ -1593,7 +1734,9 @@ function RoleFilters({
   showEdgeLabels: boolean
   hideIsolatedNodes: boolean
   showOnlySharedComparisonNodes: boolean
+  highlightAllPaths: boolean
   sectionState: FilterSectionState
+  onToggleOpen: () => void
   onToggle: (id: string) => void
   onSetAllRoles: (active: boolean) => void
   onToggleNodeType: (id: NodeTypeId) => void
@@ -1607,6 +1750,7 @@ function RoleFilters({
   onShowEdgeLabelsChange: (value: boolean) => void
   onHideIsolatedNodesChange: (value: boolean) => void
   onShowOnlySharedComparisonNodesChange: (value: boolean) => void
+  onHighlightAllPathsChange: (value: boolean) => void
   onSetGraphSettingsActive: (active: boolean) => void
   onToggleSection: (section: FilterSectionId) => void
   onReset: () => void
@@ -1650,13 +1794,18 @@ function RoleFilters({
   const graphSettingsActive = showEdgeLabels || hideIsolatedNodes || showOnlySharedComparisonNodes
 
   return (
-    <section className="filter-section">
+    <section className={`filter-section ${open ? 'open' : ''}`}>
       <div className="filter-section-title">
-        <h3>Filters</h3>
+        <button type="button" className="filter-section-toggle" onClick={onToggleOpen} aria-expanded={open}>
+          <h3>Filters</h3>
+          <ChevronDown size={16} />
+        </button>
         <button type="button" className="filter-reset" onClick={onReset}><RotateCcw size={13} /> Reset</button>
       </div>
+      {open ? (
+        <>
 
-      <FilterAccordionSection
+          <FilterAccordionSection
         id="roles"
         title="Filter by Staff Role"
         subtitle="Show staff with selected roles"
@@ -1686,9 +1835,9 @@ function RoleFilters({
             )
           })}
         </div>
-      </FilterAccordionSection>
+          </FilterAccordionSection>
 
-      <FilterAccordionSection
+          <FilterAccordionSection
         id="nodes"
         title="Filter by Node Types"
         subtitle="Choose which types of nodes to display"
@@ -1719,9 +1868,9 @@ function RoleFilters({
             )
           })}
         </div>
-      </FilterAccordionSection>
+          </FilterAccordionSection>
 
-      <FilterAccordionSection
+          <FilterAccordionSection
         id="edges"
         title="Filter by Edge Type"
         subtitle="Show main studios or hide regex matches"
@@ -1760,9 +1909,9 @@ function RoleFilters({
           </label>
           {edgeFilterRegexInvalid ? <p className="filter-warning">Invalid regex. No edge type regex filter is applied.</p> : null}
         </div>
-      </FilterAccordionSection>
+          </FilterAccordionSection>
 
-      <FilterAccordionSection
+          <FilterAccordionSection
         id="favourites"
         title="Filter by Staff Favourites"
         subtitle="Filter staff by popularity"
@@ -1817,9 +1966,9 @@ function RoleFilters({
             <p>Show only the most popular staff nodes in the graph.</p>
           </div>
         </div>
-      </FilterAccordionSection>
+          </FilterAccordionSection>
 
-      <FilterAccordionSection
+          <FilterAccordionSection
         id="graph"
         title="Filter by Graph Settings"
         subtitle="Control graph density and visibility"
@@ -1860,7 +2009,25 @@ function RoleFilters({
             <span className={`switch ${showOnlySharedComparisonNodes ? 'on' : ''}`} aria-hidden="true" />
           </button>
         </div>
-      </FilterAccordionSection>
+          </FilterAccordionSection>
+        </>
+      ) : null}
+
+      <section className="misc-section" aria-labelledby="misc-options-title">
+        <div className="filter-section-title compact">
+          <h3 id="misc-options-title">Miscellaneous Options</h3>
+        </div>
+        <div className="filter-list">
+          <button type="button" className="filter-row graph-setting-row" onClick={() => onHighlightAllPathsChange(!highlightAllPaths)}>
+            <Focus size={14} />
+            <span>
+              <strong>Highlight all paths</strong>
+              <em>Highlight every visible connection instead of only the shortest path</em>
+            </span>
+            <span className={`switch ${highlightAllPaths ? 'on' : ''}`} aria-hidden="true" />
+          </button>
+        </div>
+      </section>
     </section>
   )
 }

@@ -83,7 +83,10 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       cy.zoom({ level: Math.max(cy.minZoom(), cy.zoom() / 1.18), renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } })
     },
     fit: () => {
-      cyRef.current?.fit(undefined, 64)
+      const cy = cyRef.current
+      if (!cy) return
+      cy.resize()
+      cy.fit(undefined, 64)
     },
     reset: () => {
       const cy = cyRef.current
