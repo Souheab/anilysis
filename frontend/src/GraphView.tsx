@@ -25,6 +25,9 @@ interface MiniNode {
 }
 
 const MINIMAP_ENABLED = false
+const STAFF_ICON = `data:image/svg+xml;utf8,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><g fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="24" cy="15" r="6"/><path d="M13 36c1.7-7.4 5.4-11 11-11s9.3 3.6 11 11"/></g></svg>',
+)}`
 
 export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function GraphView(
   { graph, showEdgeLabels, selectedNodeId, onNodeSelect },
@@ -102,8 +105,10 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
             'font-size': 12,
             'font-weight': 700,
             'text-outline-color': '#020617',
-            'text-outline-width': 3,
-            'text-margin-y': 10,
+            'text-outline-width': 1,
+            'text-halign': 'center',
+            'text-valign': 'center',
+            'text-wrap': 'wrap',
             'border-color': '#1f3b59',
             'border-width': 2,
             'background-color': '#475569',
@@ -119,6 +124,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
             'background-color': '#0b4ea2',
             'border-color': '#1688ff',
             'border-width': 2,
+            'text-max-width': '100px',
           },
         },
         {
@@ -130,6 +136,15 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
             'background-color': '#e66b00',
             'border-color': '#ffb03a',
             'border-width': 2,
+            'background-image': STAFF_ICON,
+            'background-fit': 'none',
+            'background-position-x': '50%',
+            'background-position-y': '50%',
+            'background-width': 52,
+            'background-height': 52,
+            'text-valign': 'bottom',
+            'text-margin-y': 8,
+            'text-max-width': '78px',
           },
         },
         {
@@ -140,6 +155,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
             height: 62,
             'background-color': '#2e8a3c',
             'border-color': '#73d37a',
+            'text-max-width': '64px',
           },
         },
         {
