@@ -35,6 +35,13 @@ interface MiniNode {
   y: number
 }
 
+interface SelectionBox {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
 const MINIMAP_ENABLED = false
 const STAFF_ICON = `data:image/svg+xml;utf8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><g fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="24" cy="15" r="6"/><path d="M13 36c1.7-7.4 5.4-11 11-11s9.3 3.6 11 11"/></g></svg>',
@@ -53,7 +60,9 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const cyRef = useRef<Core | null>(null)
+  const selectionStartRef = useRef<{ x: number; y: number } | null>(null)
   const [miniNodes, setMiniNodes] = useState<MiniNode[]>([])
+  const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null)
 
   const elements = useMemo<ElementDefinition[]>(() => {
     if (!graph) {
@@ -251,10 +260,11 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
           },
         },
         {
-          selector: 'node.selected',
+          selector: 'node.selected, node:selected',
           style: {
             'border-color': '#ffffff',
             'border-width': 4,
+            'z-index': 25,
           },
         },
         {
@@ -285,9 +295,11 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
     }
 
     cy.on('tap', 'node', (event) => {
+      cy.nodes().unselect()
       onNodeSelect(event.target.id())
     })
     cy.on('tap', 'edge', (event) => {
+      cy.nodes().unselect()
       onEdgeSelect(event.target.id())
     })
     if (MINIMAP_ENABLED) {
@@ -299,8 +311,102 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
     return () => {
       cy.destroy()
       cyRef.current = null
+      selectionStartRef.current = null
+      setSelectionBox(null)
     }
   }, [elements, graph, graphLayout, onEdgeSelect, onNodeSelect, showEdgeLabels, wheelSensitivity])
+
+  useEffect(() => {
+    const container = containerRef.current
+    const cy = cyRef.current
+    if (!container || !cy) {
+      return
+    }
+
+    const renderedPoint = (event: PointerEvent) => {
+      const rect = container.getBoundingClientRect()
+      return {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+      }
+    }
+
+    const boxFromPoints = (start: { x: number; y: number }, end: { x: number; y: number }) => ({
+      left: Math.min(start.x, end.x),
+      top: Math.min(start.y, end.y),
+      width: Math.abs(end.x - start.x),
+      height: Math.abs(end.y - start.y),
+    })
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const start = selectionStartRef.current
+      if (!start) {
+        return
+      }
+      event.preventDefault()
+      setSelectionBox(boxFromPoints(start, renderedPoint(event)))
+    }
+
+    const handlePointerUp = (event: PointerEvent) => {
+      const start = selectionStartRef.current
+      if (!start) {
+        return
+      }
+
+      event.preventDefault()
+      const box = boxFromPoints(start, renderedPoint(event))
+      selectionStartRef.current = null
+      setSelectionBox(null)
+      cy.userPanningEnabled(true)
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+
+      if (box.width < 4 && box.height < 4) {
+        return
+      }
+
+      cy.nodes().unselect()
+      cy.nodes().filter((node) => {
+        const bounds = node.renderedBoundingBox({ includeLabels: false, includeOverlays: false })
+        return (
+          bounds.x2 >= box.left &&
+          bounds.x1 <= box.left + box.width &&
+          bounds.y2 >= box.top &&
+          bounds.y1 <= box.top + box.height
+        )
+      }).select()
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.button !== 2) {
+        return
+      }
+
+      event.preventDefault()
+      selectionStartRef.current = renderedPoint(event)
+      setSelectionBox({ left: selectionStartRef.current.x, top: selectionStartRef.current.y, width: 0, height: 0 })
+      cy.userPanningEnabled(false)
+      window.addEventListener('pointermove', handlePointerMove)
+      window.addEventListener('pointerup', handlePointerUp, { once: true })
+    }
+
+    const preventContextMenu = (event: MouseEvent) => {
+      event.preventDefault()
+    }
+
+    container.addEventListener('pointerdown', handlePointerDown)
+    container.addEventListener('contextmenu', preventContextMenu)
+
+    return () => {
+      container.removeEventListener('pointerdown', handlePointerDown)
+      container.removeEventListener('contextmenu', preventContextMenu)
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+      cy.userPanningEnabled(true)
+      selectionStartRef.current = null
+      setSelectionBox(null)
+    }
+  }, [graph])
 
   useEffect(() => {
     const cy = cyRef.current
@@ -308,6 +414,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       return
     }
     cy.nodes().removeClass('selected')
+    cy.nodes().unselect()
     if (selectedNodeId) {
       cy.getElementById(selectedNodeId).addClass('selected')
     }
@@ -335,6 +442,17 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
   return (
     <div className="graph-stage">
       <div ref={containerRef} className="graph-canvas" />
+      {selectionBox ? (
+        <div
+          className="graph-selection-box"
+          style={{
+            left: selectionBox.left,
+            top: selectionBox.top,
+            width: selectionBox.width,
+            height: selectionBox.height,
+          }}
+        />
+      ) : null}
       {MINIMAP_ENABLED ? <MiniMap nodes={miniNodes} selectedNodeId={selectedNodeId} /> : null}
     </div>
   )
