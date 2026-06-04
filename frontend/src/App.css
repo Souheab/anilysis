@@ -356,12 +356,125 @@ button {
 }
 
 .score-card,
-.staff-card {
+.staff-card,
+.recent-card {
   margin-top: 24px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 8px;
-  padding: 18px;
   background: rgba(15, 31, 49, 0.62);
+}
+
+.score-card,
+.staff-card {
+  padding: 18px;
+}
+
+.recent-card {
+  overflow: hidden;
+}
+
+.recent-card.open {
+  background: rgba(15, 31, 49, 0.68);
+}
+
+.recent-card-header,
+.recent-row {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.recent-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 58px;
+  padding: 12px 14px;
+  text-align: left;
+}
+
+.recent-card-header strong,
+.recent-card-header small,
+.recent-row strong,
+.recent-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-card-header strong {
+  color: #f8fafc;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.recent-card-header small {
+  margin-top: 3px;
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.recent-card-header svg {
+  flex: 0 0 auto;
+  color: #dbeafe;
+  transition: transform 0.16s ease;
+}
+
+.recent-card.open .recent-card-header svg {
+  transform: rotate(180deg);
+}
+
+.recent-card-body {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+  padding: 10px 12px 12px;
+}
+
+.recent-card-body .muted {
+  margin: 4px 2px;
+}
+
+.recent-row {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  border-radius: 6px;
+  padding: 10px;
+  text-align: left;
+}
+
+.recent-row:hover,
+.recent-card-header:hover {
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.recent-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.recent-pair strong {
+  min-width: 0;
+  color: #f8fafc;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.recent-pair svg {
+  color: #38a9ff;
+}
+
+.recent-row small {
+  color: #cbd5e1;
+  font-size: 11px;
 }
 
 .score-title {

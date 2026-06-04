@@ -57,6 +57,8 @@ const NODE_TYPE_FILTERS = [
 ] as const
 
 const FILTER_SECTION_STORAGE_KEY = 'anime-six-degrees.filterSections.v1'
+const RECENT_COMPARISONS_STORAGE_KEY = 'anime-six-degrees.recentComparisons.v1'
+const RECENT_COMPARISON_LIMIT = 10
 const ALL_ROLE_IDS = ROLE_FILTERS.map((filter) => filter.id)
 const NO_ROLE_FILTERS_SENTINEL = '__none__'
 const DEFAULT_NODE_TYPES = { anime: true, staff: true, studio: true }
@@ -75,6 +77,11 @@ type NodeTypeId = (typeof NODE_TYPE_FILTERS)[number]['id']
 type VisibleNodeTypes = Record<NodeTypeId, boolean>
 type FilterSectionId = 'roles' | 'nodes' | 'edges' | 'favourites' | 'graph'
 type FilterSectionState = Record<FilterSectionId, boolean>
+type RecentComparison = {
+  sourceAnime: AnimeSearchResult
+  targetAnime: AnimeSearchResult
+  comparedAt: string
+}
 
 function titleFor(anime: AnimeSearchResult) {
   return anime.titleEnglish || anime.titleRomaji
@@ -127,6 +134,58 @@ function initialFilterSections(): FilterSectionState {
   } catch {
     return fallback
   }
+}
+
+function isAnimeSearchResult(value: unknown): value is AnimeSearchResult {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+  const anime = value as Partial<AnimeSearchResult>
+  return typeof anime.id === 'number' && typeof anime.titleRomaji === 'string'
+}
+
+function isRecentComparison(value: unknown): value is RecentComparison {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+  const comparison = value as Partial<RecentComparison>
+  return (
+    isAnimeSearchResult(comparison.sourceAnime) &&
+    isAnimeSearchResult(comparison.targetAnime) &&
+    typeof comparison.comparedAt === 'string'
+  )
+}
+
+function initialRecentComparisons(): RecentComparison[] {
+  if (typeof window === 'undefined') {
+    return []
+  }
+  try {
+    const saved = window.localStorage.getItem(RECENT_COMPARISONS_STORAGE_KEY)
+    if (!saved) {
+      return []
+    }
+    const parsed = JSON.parse(saved)
+    return Array.isArray(parsed) ? parsed.filter(isRecentComparison).slice(0, RECENT_COMPARISON_LIMIT) : []
+  } catch {
+    return []
+  }
+}
+
+function comparisonKey(sourceAnime: AnimeSearchResult, targetAnime: AnimeSearchResult) {
+  return `${sourceAnime.id}:${targetAnime.id}`
+}
+
+function addRecentComparison(
+  current: RecentComparison[],
+  sourceAnime: AnimeSearchResult,
+  targetAnime: AnimeSearchResult,
+): RecentComparison[] {
+  const key = comparisonKey(sourceAnime, targetAnime)
+  return [
+    { sourceAnime, targetAnime, comparedAt: new Date().toISOString() },
+    ...current.filter((item) => comparisonKey(item.sourceAnime, item.targetAnime) !== key),
+  ].slice(0, RECENT_COMPARISON_LIMIT)
 }
 
 function regexFromEdgeTypeToggles(showOnlyMainStudio: boolean) {
@@ -228,6 +287,8 @@ function App() {
   const [showEdgeLabels, setShowEdgeLabels] = useState(true)
   const [hideIsolatedNodes, setHideIsolatedNodes] = useState(true)
   const [filterSections, setFilterSections] = useState<FilterSectionState>(initialFilterSections)
+  const [recentComparisons, setRecentComparisons] = useState<RecentComparison[]>(initialRecentComparisons)
+  const [recentComparisonsOpen, setRecentComparisonsOpen] = useState(false)
   const [comparison, setComparison] = useState<CompareResponse | null>(null)
   const [graph, setGraph] = useState<GraphResponse | null>(null)
   const [nodeDetail, setNodeDetail] = useState<NodeDetail | null>(null)
@@ -248,6 +309,10 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem(FILTER_SECTION_STORAGE_KEY, JSON.stringify(filterSections))
   }, [filterSections])
+
+  useEffect(() => {
+    window.localStorage.setItem(RECENT_COMPARISONS_STORAGE_KEY, JSON.stringify(recentComparisons))
+  }, [recentComparisons])
 
   useEffect(() => {
     if (!selectedNodeId || !displayGraph) {
@@ -292,6 +357,7 @@ function App() {
         setGraph(nextGraph)
         setNodeDetail(null)
         setSelectedNodeId(null)
+        setRecentComparisons((current) => addRecentComparison(current, sourceAnime, targetAnime))
       })
       .catch((requestError) => {
         if (cancelled) return
@@ -345,6 +411,13 @@ function App() {
   const swapAnime = () => {
     setSourceAnime(targetAnime)
     setTargetAnime(sourceAnime)
+  }
+
+  const restoreRecentComparison = (recentComparison: RecentComparison) => {
+    setError(null)
+    clearComparisonState()
+    setSourceAnime(recentComparison.sourceAnime)
+    setTargetAnime(recentComparison.targetAnime)
   }
 
   const toggleFilter = (filterId: string) => {
@@ -458,6 +531,12 @@ function App() {
           {duplicateSelection ? <div className="inline-error">Pick two different anime.</div> : null}
           {error ? <div className="inline-error">{error}</div> : null}
 
+          <RecentComparisons
+            items={recentComparisons}
+            open={recentComparisonsOpen}
+            onToggle={() => setRecentComparisonsOpen((current) => !current)}
+            onSelect={restoreRecentComparison}
+          />
           <ConnectionScore comparison={comparison} loading={isComparing} canCompare={canCompare} />
           <TopSharedStaff items={comparison?.sharedStaff ?? []} onSelect={(staff) => void selectNode(`staff:${staff.staffId}`)} />
         </aside>
@@ -695,6 +774,50 @@ function AnimeThumb({ anime }: { anime: AnimeSearchResult }) {
     return <img className="anime-thumb" src={anime.coverImageUrl} alt="" />
   }
   return <span className="anime-thumb fallback"><Film size={18} /></span>
+}
+
+function RecentComparisons({
+  items,
+  open,
+  onToggle,
+  onSelect,
+}: {
+  items: RecentComparison[]
+  open: boolean
+  onToggle: () => void
+  onSelect: (comparison: RecentComparison) => void
+}) {
+  return (
+    <section className={`recent-card ${open ? 'open' : ''}`}>
+      <button type="button" className="recent-card-header" onClick={onToggle} aria-expanded={open}>
+        <span>
+          <strong>Recent Comparisons</strong>
+          <small>{items.length > 0 ? `${items.length} saved` : 'No comparisons yet'}</small>
+        </span>
+        <ChevronDown size={16} />
+      </button>
+      {open ? (
+        <div className="recent-card-body">
+          {items.length === 0 ? <p className="muted">Completed comparisons will appear here.</p> : null}
+          {items.map((item) => (
+            <button
+              key={`${item.sourceAnime.id}-${item.targetAnime.id}-${item.comparedAt}`}
+              type="button"
+              className="recent-row"
+              onClick={() => onSelect(item)}
+            >
+              <span className="recent-pair">
+                <strong>{titleFor(item.sourceAnime)}</strong>
+                <ArrowRightLeft size={13} />
+                <strong>{titleFor(item.targetAnime)}</strong>
+              </span>
+              <small>{formatMeta(item.sourceAnime)} / {formatMeta(item.targetAnime)}</small>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  )
 }
 
 function ConnectionScore({ comparison, loading, canCompare }: { comparison: CompareResponse | null; loading: boolean; canCompare: boolean }) {
