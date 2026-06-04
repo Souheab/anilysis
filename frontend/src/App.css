@@ -980,8 +980,8 @@ button {
 
 .connected-row {
   display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) auto;
-  align-items: center;
+  grid-template-columns: 8px minmax(0, 1fr) minmax(110px, 42%);
+  align-items: start;
   gap: 10px;
   color: #f8fafc;
   font-size: 14px;
@@ -996,6 +996,8 @@ button {
 
 .connected-row small {
   color: #cbd5e1;
+  text-align: right;
+  line-height: 1.35;
 }
 
 .blue-dot {

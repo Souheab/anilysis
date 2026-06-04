@@ -24,7 +24,7 @@ from app.schemas import (
     SharedStudio,
     SharedVoiceActor,
 )
-from app.scoring import normalize_role_filters, path_bonus, popularity_multiplier, role_is_included
+from app.scoring import normalize_role_filters, path_bonus, popularity_multiplier, role_is_included, score_role
 
 
 class GraphService:
@@ -261,18 +261,20 @@ class GraphService:
             distance = max(0.2, 6.0 - rel.weight)
             if graph.has_edge(anime_node, staff_node):
                 edge = graph.edges[anime_node, staff_node]
-                edge["label"] = f"{edge['label']}, {rel.role}"
-                edge["roles"].append(rel.role)
+                edge["roles"] = self._append_unique(edge["roles"], rel.role)
+                edge["roleCategories"] = self._append_unique(edge["roleCategories"], rel.role_category)
+                edge["label"] = self._staff_edge_label(edge["roles"])
                 edge["weight"] = max(edge["weight"], rel.weight)
                 edge["distance"] = min(edge["distance"], distance)
             else:
+                roles = [rel.role]
                 graph.add_edge(
                     anime_node,
                     staff_node,
                     id=edge_id,
-                    label=rel.role,
+                    label=self._staff_edge_label(roles),
                     type="staff",
-                    roles=[rel.role],
+                    roles=roles,
                     roleCategories=[rel.role_category],
                     weight=rel.weight,
                     distance=distance,
@@ -596,6 +598,22 @@ class GraphService:
             "year": anime.year,
             "format": anime.format,
         }
+
+    def _append_unique(self, values: list[str], value: str) -> list[str]:
+        if value in values:
+            return values
+        return [*values, value]
+
+    def _rank_staff_roles(self, roles: list[str]) -> list[str]:
+        return sorted(set(roles), key=lambda role: (-score_role(role).weight, role.lower()))
+
+    def _staff_edge_label(self, roles: list[str]) -> str:
+        ranked_roles = self._rank_staff_roles(roles)
+        if not ranked_roles:
+            return "Staff"
+        if len(ranked_roles) == 1:
+            return ranked_roles[0]
+        return f"{ranked_roles[0]} +{len(ranked_roles) - 1}"
 
     def _connection_to_search_result(self, connection: RelatedConnection) -> AnimeSearchResult:
         return AnimeSearchResult(

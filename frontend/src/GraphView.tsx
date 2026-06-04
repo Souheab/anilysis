@@ -14,7 +14,9 @@ interface GraphViewProps {
   graph: GraphResponse | null
   showEdgeLabels: boolean
   selectedNodeId: string | null
+  selectedEdgeId: string | null
   onNodeSelect: (nodeId: string) => void
+  onEdgeSelect: (edgeId: string) => void
 }
 
 interface MiniNode {
@@ -33,7 +35,7 @@ const VOICE_ACTOR_ICON = `data:image/svg+xml;utf8,${encodeURIComponent(
 )}`
 
 export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function GraphView(
-  { graph, showEdgeLabels, selectedNodeId, onNodeSelect },
+  { graph, showEdgeLabels, selectedNodeId, selectedEdgeId, onNodeSelect, onEdgeSelect },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -233,10 +235,20 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
           },
         },
         {
-          selector: '.selected',
+          selector: 'node.selected',
           style: {
             'border-color': '#ffffff',
             'border-width': 4,
+          },
+        },
+        {
+          selector: 'edge.selected',
+          style: {
+            'line-color': '#ffffff',
+            'target-arrow-color': '#ffffff',
+            'line-opacity': 1,
+            width: 5,
+            'z-index': 25,
           },
         },
       ],
@@ -264,6 +276,9 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
     cy.on('tap', 'node', (event) => {
       onNodeSelect(event.target.id())
     })
+    cy.on('tap', 'edge', (event) => {
+      onEdgeSelect(event.target.id())
+    })
     if (MINIMAP_ENABLED) {
       cy.on('layoutstop position viewport', updateMiniMap)
       window.requestAnimationFrame(updateMiniMap)
@@ -274,7 +289,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       cy.destroy()
       cyRef.current = null
     }
-  }, [elements, graph, onNodeSelect, showEdgeLabels])
+  }, [elements, graph, onEdgeSelect, onNodeSelect, showEdgeLabels])
 
   useEffect(() => {
     const cy = cyRef.current
@@ -286,6 +301,17 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       cy.getElementById(selectedNodeId).addClass('selected')
     }
   }, [selectedNodeId])
+
+  useEffect(() => {
+    const cy = cyRef.current
+    if (!cy) {
+      return
+    }
+    cy.edges().removeClass('selected')
+    if (selectedEdgeId) {
+      cy.getElementById(selectedEdgeId).addClass('selected')
+    }
+  }, [selectedEdgeId])
 
   if (!graph) {
     return <div className="graph-empty">Choose two anime from search to build a creative graph.</div>

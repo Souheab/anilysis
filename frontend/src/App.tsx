@@ -85,6 +85,7 @@ type RecentComparison = {
   targetAnime: AnimeSearchResult
   comparedAt: string
 }
+type GraphEdge = GraphResponse['edges'][number]
 
 function titleFor(anime: AnimeSearchResult) {
   return anime.titleEnglish || anime.titleRomaji
@@ -231,6 +232,10 @@ function isSupportingStudioEdge(edge: GraphResponse['edges'][number]) {
 
 function stringListDataValue(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+function stringDataValue(value: unknown) {
+  return typeof value === 'string' ? value : ''
 }
 
 function staffEdgeCategories(edge: GraphResponse['edges'][number]) {
@@ -477,6 +482,7 @@ function App() {
   const [graph, setGraph] = useState<GraphResponse | null>(null)
   const [nodeDetail, setNodeDetail] = useState<NodeDetail | null>(null)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
   const [isComparing, setIsComparing] = useState(false)
   const [isLoadingNode, setIsLoadingNode] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -511,6 +517,10 @@ function App() {
   )
   const canCompare = Boolean(sourceAnime && targetAnime && sourceAnime.id !== targetAnime.id)
   const duplicateSelection = Boolean(sourceAnime && targetAnime && sourceAnime.id === targetAnime.id)
+  const selectedEdge = useMemo(
+    () => displayGraph?.edges.find((edge) => edge.data.id === selectedEdgeId) ?? null,
+    [displayGraph, selectedEdgeId],
+  )
 
   useEffect(() => {
     window.localStorage.setItem(FILTER_SECTION_STORAGE_KEY, JSON.stringify(filterSections))
@@ -529,6 +539,7 @@ function App() {
       window.queueMicrotask(() => {
         if (!cancelled) {
           setSelectedNodeId(null)
+          setSelectedEdgeId(null)
           setNodeDetail(null)
         }
       })
@@ -537,6 +548,23 @@ function App() {
       }
     }
   }, [displayGraph, selectedNodeId])
+
+  useEffect(() => {
+    if (!selectedEdgeId || !displayGraph) {
+      return
+    }
+    if (!displayGraph.edges.some((edge) => edge.data.id === selectedEdgeId)) {
+      let cancelled = false
+      window.queueMicrotask(() => {
+        if (!cancelled) {
+          setSelectedEdgeId(null)
+        }
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+  }, [displayGraph, selectedEdgeId])
 
   useEffect(() => {
     if (!sourceAnime || !targetAnime) {
@@ -563,6 +591,7 @@ function App() {
         setGraph(nextGraph)
         setNodeDetail(null)
         setSelectedNodeId(null)
+        setSelectedEdgeId(null)
         setRecentComparisons((current) => addRecentComparison(current, sourceAnime, targetAnime))
       })
       .catch((requestError) => {
@@ -585,6 +614,7 @@ function App() {
     setGraph(null)
     setNodeDetail(null)
     setSelectedNodeId(null)
+    setSelectedEdgeId(null)
   }, [])
 
   const assignAnime = useCallback(
@@ -693,6 +723,7 @@ function App() {
     }
     const apiType = type === 'voice_actor' ? 'voiceActor' : type
     setSelectedNodeId(nodeId)
+    setSelectedEdgeId(null)
     setIsLoadingNode(true)
     setError(null)
     try {
@@ -702,6 +733,13 @@ function App() {
     } finally {
       setIsLoadingNode(false)
     }
+  }, [])
+
+  const selectEdge = useCallback((edgeId: string) => {
+    setSelectedEdgeId(edgeId)
+    setSelectedNodeId(null)
+    setNodeDetail(null)
+    setIsLoadingNode(false)
   }, [])
 
   return (
@@ -765,15 +803,18 @@ function App() {
             graph={displayGraph}
             showEdgeLabels={showEdgeLabels}
             selectedNodeId={selectedNodeId}
+            selectedEdgeId={selectedEdgeId}
             onNodeSelect={selectNode}
+            onEdgeSelect={selectEdge}
           />
           {showGraphLegend ? <GraphLegend /> : null}
         </section>
 
         <aside className={`right-panel panel ${rightPanelCollapsed ? 'collapsed' : ''}`}>
-          <DetailPanel detail={nodeDetail} loading={isLoadingNode} onClose={() => {
+          <DetailPanel detail={nodeDetail} edge={selectedEdge} graph={displayGraph} loading={isLoadingNode} onClose={() => {
             setNodeDetail(null)
             setSelectedNodeId(null)
+            setSelectedEdgeId(null)
           }} />
           <RoleFilters
             activeFilters={activeFilters}
@@ -1227,18 +1268,76 @@ function GraphLegend() {
   )
 }
 
-function DetailPanel({ detail, loading, onClose }: { detail: NodeDetail | null; loading: boolean; onClose: () => void }) {
+function DetailPanel({
+  detail,
+  edge,
+  graph,
+  loading,
+  onClose,
+}: {
+  detail: NodeDetail | null
+  edge: GraphEdge | null
+  graph: GraphResponse | null
+  loading: boolean
+  onClose: () => void
+}) {
+  const hasSelection = Boolean(detail || edge)
   return (
     <section className="detail-section">
       <div className="panel-header">
-        <h2>Node Details</h2>
-        {detail ? <button type="button" className="icon-close" onClick={onClose}><X size={18} /></button> : null}
+        <h2>{edge ? 'Edge Details' : 'Node Details'}</h2>
+        {hasSelection ? <button type="button" className="icon-close" onClick={onClose}><X size={18} /></button> : null}
       </div>
       {loading ? <div className="detail-empty"><Loader2 className="spin" size={18} /> Loading details.</div> : null}
-      {!loading && !detail ? <div className="detail-empty">Select a graph node to inspect its roles and connected anime.</div> : null}
-      {!loading && detail ? <NodeDetailContent detail={detail} /> : null}
+      {!loading && !detail && !edge ? <div className="detail-empty">Select a graph node or edge to inspect its roles and connected anime.</div> : null}
+      {!loading && edge ? <EdgeDetailContent edge={edge} graph={graph} /> : null}
+      {!loading && !edge && detail ? <NodeDetailContent detail={detail} /> : null}
     </section>
   )
+}
+
+function EdgeDetailContent({ edge, graph }: { edge: GraphEdge; graph: GraphResponse | null }) {
+  const nodesById = useMemo(() => new Map((graph?.nodes ?? []).map((node) => [String(node.data.id), node])), [graph])
+  const sourceId = stringDataValue(edge.data.source)
+  const targetId = stringDataValue(edge.data.target)
+  const source = nodesById.get(sourceId)
+  const target = nodesById.get(targetId)
+  const roles = stringListDataValue(edge.data.roles)
+  const label = stringDataValue(edge.data.label) || roles[0] || 'Connection'
+  const type = stringDataValue(edge.data.type)
+  return (
+    <div className="detail-content">
+      <div className="node-identity">
+        <span className="node-avatar studio"><Network size={22} /></span>
+        <span>
+          <h3>{label}</h3>
+          <small>{edgeTypeLabel(type)}</small>
+        </span>
+      </div>
+      <div>
+        <h4>Connection</h4>
+        <p className="about-text">{nodeLabel(source, sourceId)} to {nodeLabel(target, targetId)}</p>
+      </div>
+      <div>
+        <h4>{type === 'voice_actor' ? 'Characters' : 'Roles'}</h4>
+        <div className="pill-row">
+          {roles.map((role) => <span key={role} className={`role-pill ${type === 'voice_actor' ? 'voice-pill' : ''}`}>{role}</span>)}
+          {roles.length === 0 ? <p className="muted">No roles are stored for this connection.</p> : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function nodeLabel(node: GraphResponse['nodes'][number] | undefined, fallback: string) {
+  return stringDataValue(node?.data.label) || fallback
+}
+
+function edgeTypeLabel(type: string) {
+  if (type === 'voice_actor') return 'Voice Actor Connection'
+  if (type === 'studio') return 'Studio Connection'
+  if (type === 'staff') return 'Staff Connection'
+  return 'Connection'
 }
 
 function NodeDetailContent({ detail }: { detail: NodeDetail }) {
@@ -1281,7 +1380,7 @@ function NodeDetailContent({ detail }: { detail: NodeDetail }) {
             <div key={anime.id} className="connected-row">
               <span className="blue-dot" />
               <span>{titleFor(anime)}</span>
-              <small>{anime.roles?.[0] ?? anime.format ?? ''}</small>
+              <small>{anime.roles?.length ? anime.roles.join(', ') : anime.format ?? ''}</small>
             </div>
           ))}
           {related.length === 0 ? <p className="muted">No connected anime are cached yet.</p> : null}

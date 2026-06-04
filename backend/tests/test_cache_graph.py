@@ -204,6 +204,41 @@ def test_cytoscape_graph_includes_voice_actor_nodes_and_edges(session: Session):
     assert any(edge.data["type"] == "voice_actor" for edge in graph.edges)
 
 
+def test_cytoscape_graph_shortens_staff_edges_with_full_roles(session: Session):
+    seed_compare_data(session)
+    for role in ["Script", "Storyboard", "Key Animation"]:
+        role_score = score_role(role)
+        session.add(
+            AnimeStaffRole(
+                anime_id=1,
+                staff_id=100,
+                role=role,
+                role_category=role_score.category,
+                weight=role_score.weight,
+            )
+        )
+    session.commit()
+
+    graph = GraphService().cytoscape_graph(session, 1, 2, [], max_depth=1)
+    edge = next(edge for edge in graph.edges if edge.data["source"] == "anime:1" and edge.data["target"] == "staff:100")
+
+    assert edge.data["label"] == "Director +3"
+    assert set(edge.data["roles"]) == {"Director", "Script", "Storyboard", "Key Animation"}
+
+
+def test_cytoscape_graph_does_not_shorten_voice_actor_edges(session: Session):
+    seed_compare_data(session)
+    session.add(AnimeVoiceActorRole(anime_id=1, voice_actor_id=400, character_name="Mentor", weight=3.0))
+    session.commit()
+
+    graph = GraphService().cytoscape_graph(session, 1, 2, [], max_depth=1)
+    edge = next(edge for edge in graph.edges if edge.data["source"] == "anime:1" and edge.data["target"] == "voice_actor:400")
+
+    assert edge.data["label"] == "Hero, Mentor"
+    assert "+1" not in edge.data["label"]
+    assert edge.data["roles"] == ["Hero", "Mentor"]
+
+
 def test_cytoscape_graph_returns_highlighted_path(session: Session):
     seed_compare_data(session)
 
