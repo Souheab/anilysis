@@ -5,6 +5,9 @@
   "features": {
     "ghcr.io/devcontainers/features/node:1": {
       "version": "22"
+    },
+    "ghcr.io/devcontainers/features/nix:1": {
+      "extraNixConfig": "experimental-features = nix-command flakes"
     }
   },
 
@@ -32,7 +35,8 @@
         "charliermarsh.ruff",
         "esbenp.prettier-vscode",
         "dbaeumer.vscode-eslint",
-        "bradlc.vscode-tailwindcss"
+        "bradlc.vscode-tailwindcss",
+        "jnoortheen.nix-ide"
       ]
     }
   },
