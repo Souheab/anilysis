@@ -614,11 +614,6 @@ function App() {
     clearComparisonState()
   }
 
-  const swapAnime = () => {
-    setSourceAnime(targetAnime)
-    setTargetAnime(sourceAnime)
-  }
-
   const restoreRecentComparison = (recentComparison: RecentComparison) => {
     setError(null)
     clearComparisonState()
@@ -724,10 +719,7 @@ function App() {
 
       <div className={`workspace ${leftPanelCollapsed ? 'left-collapsed' : ''} ${rightPanelCollapsed ? 'right-collapsed' : ''}`}>
         <aside className={`left-panel panel ${leftPanelCollapsed ? 'collapsed' : ''}`}>
-          <PanelHeader
-            title="Compare Anime"
-            action={<button type="button" className="icon-button-ghost" onClick={swapAnime} aria-label="Swap anime"><ArrowRightLeft size={18} /></button>}
-          />
+          <PanelHeader title="Compare Anime" />
           <div className="anime-slots">
             <AnimeSlot slot={1} anime={sourceAnime} active={activeSlot === 1} onPick={() => setActiveSlot(1)} onClear={clearSourceAnime} />
             <AnimeSlot slot={2} anime={targetAnime} active={activeSlot === 2} onPick={() => setActiveSlot(2)} onClear={clearTargetAnime} />
