@@ -1,7 +1,10 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import cytoscape, { type Core, type ElementDefinition } from 'cytoscape'
+import cytoscape, { type Core, type ElementDefinition, type LayoutOptions } from 'cytoscape'
+import fcose from 'cytoscape-fcose'
 
 import type { GraphResponse } from './api'
+
+cytoscape.use(fcose)
 
 export interface GraphViewHandle {
   zoomIn: () => void
@@ -13,6 +16,7 @@ export interface GraphViewHandle {
 interface GraphViewProps {
   graph: GraphResponse | null
   showEdgeLabels: boolean
+  wheelSensitivity: number
   selectedNodeId: string | null
   selectedEdgeId: string | null
   onNodeSelect: (nodeId: string) => void
@@ -27,6 +31,7 @@ interface MiniNode {
 }
 
 const MINIMAP_ENABLED = false
+const FCOSE_LAYOUT = { name: 'fcose', animate: false, fit: true, padding: 80 } as LayoutOptions
 const STAFF_ICON = `data:image/svg+xml;utf8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><g fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="24" cy="15" r="6"/><path d="M13 36c1.7-7.4 5.4-11 11-11s9.3 3.6 11 11"/></g></svg>',
 )}`
@@ -35,7 +40,7 @@ const VOICE_ACTOR_ICON = `data:image/svg+xml;utf8,${encodeURIComponent(
 )}`
 
 export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function GraphView(
-  { graph, showEdgeLabels, selectedNodeId, selectedEdgeId, onNodeSelect, onEdgeSelect },
+  { graph, showEdgeLabels, wheelSensitivity, selectedNodeId, selectedEdgeId, onNodeSelect, onEdgeSelect },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -75,7 +80,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
     reset: () => {
       const cy = cyRef.current
       if (!cy) return
-      cy.layout({ name: cy.elements().length > 24 ? 'cose' : 'breadthfirst', animate: false, fit: true, padding: 80 }).run()
+      cy.layout(FCOSE_LAYOUT).run()
     },
   }))
 
@@ -97,7 +102,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       elements,
       minZoom: 0.3,
       maxZoom: 2.8,
-      wheelSensitivity: 0.16,
+      wheelSensitivity,
       autoungrabify: false,
       style: [
         {
@@ -252,12 +257,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
           },
         },
       ],
-      layout: {
-        name: elements.length > 24 ? 'cose' : 'breadthfirst',
-        animate: false,
-        fit: true,
-        padding: 80,
-      },
+      layout: FCOSE_LAYOUT,
     })
 
     const updateMiniMap = () => {
@@ -289,7 +289,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       cy.destroy()
       cyRef.current = null
     }
-  }, [elements, graph, onEdgeSelect, onNodeSelect, showEdgeLabels])
+  }, [elements, graph, onEdgeSelect, onNodeSelect, showEdgeLabels, wheelSensitivity])
 
   useEffect(() => {
     const cy = cyRef.current

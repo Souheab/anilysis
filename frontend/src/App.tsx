@@ -21,6 +21,7 @@ import {
   Plus,
   RotateCcw,
   Search,
+  Settings,
   SlidersHorizontal,
   Users,
   X,
@@ -63,11 +64,15 @@ const NODE_TYPE_FILTERS = [
 
 const FILTER_SECTION_STORAGE_KEY = 'anime-six-degrees.filterSections.v1'
 const RECENT_COMPARISONS_STORAGE_KEY = 'anime-six-degrees.recentComparisons.v1'
+const SETTINGS_STORAGE_KEY = 'anime-six-degrees.settings.v1'
 const RECENT_COMPARISON_LIMIT = 10
 const ALL_ROLE_IDS = ROLE_FILTERS.map((filter) => filter.id)
 const DEFAULT_NODE_TYPES = { anime: true, staff: true, voiceActor: true, studio: true }
 const DEFAULT_SHOW_ONLY_MAIN_STUDIO_EDGES = true
 const DEFAULT_EDGE_FILTER_REGEX = ''
+const DEFAULT_WHEEL_SENSITIVITY = 0.16
+const MIN_WHEEL_SENSITIVITY = 0.04
+const MAX_WHEEL_SENSITIVITY = 1
 const STAFF_LIMIT_OPTIONS = [
   { label: 'Top 10', value: 10 },
   { label: 'Top 20', value: 20 },
@@ -175,6 +180,28 @@ function initialRecentComparisons(): RecentComparison[] {
     return Array.isArray(parsed) ? parsed.filter(isRecentComparison).slice(0, RECENT_COMPARISON_LIMIT) : []
   } catch {
     return []
+  }
+}
+
+function clampWheelSensitivity(value: number) {
+  return Math.min(MAX_WHEEL_SENSITIVITY, Math.max(MIN_WHEEL_SENSITIVITY, value))
+}
+
+function initialWheelSensitivity() {
+  if (typeof window === 'undefined') {
+    return DEFAULT_WHEEL_SENSITIVITY
+  }
+  try {
+    const saved = window.localStorage.getItem(SETTINGS_STORAGE_KEY)
+    if (!saved) {
+      return DEFAULT_WHEEL_SENSITIVITY
+    }
+    const parsed = JSON.parse(saved) as Partial<Record<string, unknown>>
+    return typeof parsed.wheelSensitivity === 'number'
+      ? clampWheelSensitivity(parsed.wheelSensitivity)
+      : DEFAULT_WHEEL_SENSITIVITY
+  } catch {
+    return DEFAULT_WHEEL_SENSITIVITY
   }
 }
 
@@ -475,6 +502,8 @@ function App() {
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false)
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false)
   const [showGraphLegend, setShowGraphLegend] = useState(true)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [wheelSensitivity, setWheelSensitivity] = useState(initialWheelSensitivity)
   const [filterSections, setFilterSections] = useState<FilterSectionState>(initialFilterSections)
   const [recentComparisons, setRecentComparisons] = useState<RecentComparison[]>(initialRecentComparisons)
   const [recentComparisonsOpen, setRecentComparisonsOpen] = useState(false)
@@ -529,6 +558,10 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem(RECENT_COMPARISONS_STORAGE_KEY, JSON.stringify(recentComparisons))
   }, [recentComparisons])
+
+  useEffect(() => {
+    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ wheelSensitivity }))
+  }, [wheelSensitivity])
 
   useEffect(() => {
     if (!selectedNodeId || !displayGraph) {
@@ -753,6 +786,11 @@ function App() {
           onActiveSlotChange={setActiveSlot}
           onSelect={assignAnime}
         />
+        <div className="topbar-actions">
+          <button type="button" className="settings-button" title="Settings" aria-label="Open settings" onClick={() => setSettingsOpen(true)}>
+            <Settings size={19} />
+          </button>
+        </div>
       </header>
 
       <div className={`workspace ${leftPanelCollapsed ? 'left-collapsed' : ''} ${rightPanelCollapsed ? 'right-collapsed' : ''}`}>
@@ -802,6 +840,7 @@ function App() {
             ref={graphRef}
             graph={displayGraph}
             showEdgeLabels={showEdgeLabels}
+            wheelSensitivity={wheelSensitivity}
             selectedNodeId={selectedNodeId}
             selectedEdgeId={selectedEdgeId}
             onNodeSelect={selectNode}
@@ -849,7 +888,75 @@ function App() {
           />
         </aside>
       </div>
+      <SettingsModal
+        open={settingsOpen}
+        wheelSensitivity={wheelSensitivity}
+        onWheelSensitivityChange={setWheelSensitivity}
+        onClose={() => setSettingsOpen(false)}
+      />
     </main>
+  )
+}
+
+function SettingsModal({
+  open,
+  wheelSensitivity,
+  onWheelSensitivityChange,
+  onClose,
+}: {
+  open: boolean
+  wheelSensitivity: number
+  onWheelSensitivityChange: (value: number) => void
+  onClose: () => void
+}) {
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose, open])
+
+  if (!open) {
+    return null
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="settings-modal-header">
+          <h2 id="settings-title">Settings</h2>
+          <button type="button" className="icon-close" aria-label="Close settings" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+        <label className="settings-slider">
+          <span>
+            <strong>Scroll wheel sensitivity</strong>
+            <small>{wheelSensitivity.toFixed(2)}</small>
+          </span>
+          <input
+            type="range"
+            min={MIN_WHEEL_SENSITIVITY}
+            max={MAX_WHEEL_SENSITIVITY}
+            step="0.01"
+            value={wheelSensitivity}
+            onChange={(event) => onWheelSensitivityChange(clampWheelSensitivity(Number(event.target.value)))}
+          />
+        </label>
+      </section>
+    </div>
   )
 }
 

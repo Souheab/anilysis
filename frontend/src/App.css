@@ -31,6 +31,30 @@ button {
   letter-spacing: 0;
 }
 
+.topbar-actions {
+  display: flex;
+  grid-column: 3;
+  justify-content: flex-end;
+}
+
+.settings-button {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #e2e8f0;
+  cursor: pointer;
+}
+
+.settings-button:hover {
+  border-color: rgba(29, 155, 240, 0.55);
+  background: rgba(29, 155, 240, 0.18);
+  color: #fff;
+}
+
 .command-wrap {
   position: relative;
   z-index: 30;
@@ -325,6 +349,67 @@ button {
 .command-result .anime-thumb.fallback {
   width: 42px;
   height: 56px;
+}
+
+.modal-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(1, 9, 18, 0.68);
+  backdrop-filter: blur(8px);
+}
+
+.settings-modal {
+  width: min(440px, 100%);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  padding: 22px;
+  background: rgba(3, 12, 24, 0.98);
+  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.58);
+}
+
+.settings-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-modal-header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.settings-slider {
+  display: grid;
+  gap: 14px;
+  margin-top: 26px;
+}
+
+.settings-slider span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.settings-slider strong {
+  font-size: 15px;
+}
+
+.settings-slider small {
+  color: #93c5fd;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.settings-slider input {
+  width: 100%;
+  accent-color: #1d9bf0;
 }
 
 .slot-copy {
@@ -1411,7 +1496,18 @@ button {
     padding: 18px;
   }
 
+  .topbar h1 {
+    padding-right: 52px;
+  }
+
   .command-wrap {
+    grid-column: 1;
+  }
+
+  .topbar-actions {
+    position: absolute;
+    top: 15px;
+    right: 18px;
     grid-column: 1;
   }
 
