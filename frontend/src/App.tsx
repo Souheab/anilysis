@@ -849,7 +849,7 @@ function ConnectionScore({ comparison, loading, canCompare }: { comparison: Comp
           <div className="score-row">
             <strong>{comparison ? `${score}%` : '--'}</strong>
           </div>
-          <p>{comparison ? 'Shared creative DNA through staff, cast, and studio overlap' : canCompare ? 'Comparison will run automatically.' : 'Choose two anime to compare.'}</p>
+          <p>{comparison ? 'Connection score based on shared staff, cast, and studio connections' : canCompare ? 'Comparison will run automatically.' : 'Choose two anime to compare.'}</p>
         </>
       )}
     </section>
