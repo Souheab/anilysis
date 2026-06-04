@@ -23,6 +23,8 @@ interface MiniNode {
   y: number
 }
 
+const MINIMAP_ENABLED = false
+
 export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function GraphView(
   { graph, selectedNodeId, onNodeSelect },
   ref,
@@ -209,8 +211,10 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
     cy.on('tap', 'node', (event) => {
       onNodeSelect(event.target.id())
     })
-    cy.on('layoutstop position viewport', updateMiniMap)
-    window.requestAnimationFrame(updateMiniMap)
+    if (MINIMAP_ENABLED) {
+      cy.on('layoutstop position viewport', updateMiniMap)
+      window.requestAnimationFrame(updateMiniMap)
+    }
 
     cyRef.current = cy
     return () => {
@@ -241,7 +245,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
   return (
     <div className="graph-stage">
       <div ref={containerRef} className="graph-canvas" />
-      <MiniMap nodes={miniNodes} selectedNodeId={selectedNodeId} />
+      {MINIMAP_ENABLED ? <MiniMap nodes={miniNodes} selectedNodeId={selectedNodeId} /> : null}
     </div>
   )
 })
