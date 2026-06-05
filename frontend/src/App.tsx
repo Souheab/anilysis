@@ -997,7 +997,7 @@ function App() {
           <PanelHeader title="Analyze Anime" />
           <div className="anime-slots">
             {selectedAnime.length === 0 ? <p className="muted">Add at least one anime to begin analysis</p> : null}
-            {Array.from({ length: selectedAnime.length === 0 ? 0 : selectedAnime.length + (atSelectionLimit ? 0 : 1) }).map((_, index) => (
+            {Array.from({ length: selectedAnime.length === 0 ? 1 : selectedAnime.length + (atSelectionLimit ? 0 : 1) }).map((_, index) => (
               <AnimeSlot
                 key={selectedAnime[index]?.id ?? `empty-${index}`}
                 slot={index + 1}
