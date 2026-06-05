@@ -28,8 +28,7 @@ export interface SharedStaff {
   name: string
   imageUrl?: string | null
   favourites?: number | null
-  sourceRoles: string[]
-  targetRoles: string[]
+  rolesByAnime: Record<number, string[]>
   roleCategories: string[]
   weight: number
 }
@@ -37,8 +36,7 @@ export interface SharedStaff {
 export interface SharedStudio {
   studioId: number
   name: string
-  sourceIsMain: boolean
-  targetIsMain: boolean
+  isMainByAnime: Record<number, boolean>
   weight: number
 }
 
@@ -47,8 +45,7 @@ export interface SharedVoiceActor {
   name: string
   imageUrl?: string | null
   favourites?: number | null
-  sourceCharacters: string[]
-  targetCharacters: string[]
+  charactersByAnime: Record<number, string[]>
   roleCategories: string[]
   weight: number
 }
@@ -68,8 +65,7 @@ export interface PathNode {
 }
 
 export interface CompareResponse {
-  sourceAnime: AnimeDetail
-  targetAnime: AnimeDetail
+  anime: AnimeDetail[]
   sharedStaff: SharedStaff[]
   sharedStudios: SharedStudio[]
   sharedVoiceActors: SharedVoiceActor[]
@@ -156,27 +152,25 @@ export function searchAnime(query: string, signal?: AbortSignal) {
 }
 
 export function compareAnime(
-  sourceAnimeId: number,
-  targetAnimeId: number,
+  animeIds: number[],
   roleFilters: string[],
   popularityFilters: StaffPopularityFilters = DEFAULT_STAFF_POPULARITY_FILTERS,
 ) {
   return request<CompareResponse>('/api/compare', {
     method: 'POST',
-    body: JSON.stringify({ sourceAnimeId, targetAnimeId, roleFilters, ...popularityFilters }),
+    body: JSON.stringify({ animeIds, roleFilters, ...popularityFilters }),
   })
 }
 
 export function fetchGraph(
-  sourceAnimeId: number,
-  targetAnimeId: number,
+  animeIds: number[],
   roleFilters: string[],
   maxDepth = 2,
   popularityFilters: StaffPopularityFilters = DEFAULT_STAFF_POPULARITY_FILTERS,
 ) {
   return request<GraphResponse>('/api/graph', {
     method: 'POST',
-    body: JSON.stringify({ sourceAnimeId, targetAnimeId, roleFilters, maxDepth, ...popularityFilters }),
+    body: JSON.stringify({ animeIds, roleFilters, maxDepth, ...popularityFilters }),
   })
 }
 

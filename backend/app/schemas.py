@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 NodeType = Literal["anime", "staff", "studio", "voiceActor"]
@@ -40,11 +40,17 @@ class RefreshResponse(BaseModel):
 
 
 class CompareRequest(BaseModel):
-    sourceAnimeId: int
-    targetAnimeId: int
+    animeIds: list[int] = Field(min_length=2, max_length=6)
     roleFilters: list[str] = Field(default_factory=list)
     staffMinFavourites: int = Field(default=0, ge=0)
     staffLimit: int | None = Field(default=40, ge=1, le=200)
+
+    @field_validator("animeIds")
+    @classmethod
+    def anime_ids_must_be_unique(cls, value: list[int]) -> list[int]:
+        if len(value) != len(set(value)):
+            raise ValueError("animeIds must be unique")
+        return value
 
 
 class GraphRequest(CompareRequest):
@@ -56,8 +62,7 @@ class SharedStaff(BaseModel):
     name: str
     imageUrl: str | None = None
     favourites: int | None = None
-    sourceRoles: list[str]
-    targetRoles: list[str]
+    rolesByAnime: dict[int, list[str]]
     roleCategories: list[str]
     weight: float
 
@@ -65,8 +70,7 @@ class SharedStaff(BaseModel):
 class SharedStudio(BaseModel):
     studioId: int
     name: str
-    sourceIsMain: bool
-    targetIsMain: bool
+    isMainByAnime: dict[int, bool]
     weight: float
 
 
@@ -75,8 +79,7 @@ class SharedVoiceActor(BaseModel):
     name: str
     imageUrl: str | None = None
     favourites: int | None = None
-    sourceCharacters: list[str]
-    targetCharacters: list[str]
+    charactersByAnime: dict[int, list[str]]
     roleCategories: list[str]
     weight: float
 
@@ -96,8 +99,7 @@ class PathNode(BaseModel):
 
 
 class CompareResponse(BaseModel):
-    sourceAnime: AnimeDetail
-    targetAnime: AnimeDetail
+    anime: list[AnimeDetail]
     sharedStaff: list[SharedStaff]
     sharedStudios: list[SharedStudio]
     sharedVoiceActors: list[SharedVoiceActor]

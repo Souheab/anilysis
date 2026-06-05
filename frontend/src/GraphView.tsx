@@ -475,7 +475,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
   }, [selectedEdgeId])
 
   if (!graph) {
-    return <div className="graph-empty">Choose two anime from search to build a creative graph.</div>
+    return <div className="graph-empty">Choose at least two anime from search to build a creative graph.</div>
   }
 
   if (graph.nodes.length === 0) {

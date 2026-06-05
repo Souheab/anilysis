@@ -66,6 +66,8 @@ const FILTER_SECTION_STORAGE_KEY = 'anime-six-degrees.filterSections.v1'
 const RECENT_COMPARISONS_STORAGE_KEY = 'anime-six-degrees.recentComparisons.v1'
 const SETTINGS_STORAGE_KEY = 'anime-six-degrees.settings.v1'
 const RECENT_COMPARISON_LIMIT = 10
+const MIN_COMPARE_ANIME = 2
+const MAX_COMPARE_ANIME = 6
 const ALL_ROLE_IDS = ROLE_FILTERS.map((filter) => filter.id)
 const DEFAULT_NODE_TYPES = { anime: true, staff: true, voiceActor: true, studio: true }
 const VOICE_ACTOR_NODE_TYPES = { ...DEFAULT_NODE_TYPES, staff: false }
@@ -102,8 +104,7 @@ type FilterSectionId = 'roles' | 'nodes' | 'edges' | 'favourites' | 'graph'
 type FilterSectionState = Record<FilterSectionId, boolean>
 type ResizePanel = 'left' | 'right'
 type RecentComparison = {
-  sourceAnime: AnimeSearchResult
-  targetAnime: AnimeSearchResult
+  anime: AnimeSearchResult[]
   comparedAt: string
 }
 type GraphEdge = GraphResponse['edges'][number]
@@ -133,11 +134,11 @@ function stripHtml(value?: string | null) {
 }
 
 function primaryRole(staff: SharedStaff) {
-  return staff.sourceRoles[0] || staff.targetRoles[0] || staff.roleCategories[0] || 'Role'
+  return Object.values(staff.rolesByAnime).flat()[0] || staff.roleCategories[0] || 'Role'
 }
 
 function primaryCharacter(actor: SharedVoiceActor) {
-  return actor.sourceCharacters[0] || actor.targetCharacters[0] || 'Voice'
+  return Object.values(actor.charactersByAnime).flat()[0] || 'Voice'
 }
 
 function nodeTypeLabel(type: NodeDetail['type']) {
@@ -186,8 +187,10 @@ function isRecentComparison(value: unknown): value is RecentComparison {
   }
   const comparison = value as Partial<RecentComparison>
   return (
-    isAnimeSearchResult(comparison.sourceAnime) &&
-    isAnimeSearchResult(comparison.targetAnime) &&
+    Array.isArray(comparison.anime) &&
+    comparison.anime.length >= MIN_COMPARE_ANIME &&
+    comparison.anime.length <= MAX_COMPARE_ANIME &&
+    comparison.anime.every(isAnimeSearchResult) &&
     typeof comparison.comparedAt === 'string'
   )
 }
@@ -272,20 +275,30 @@ function initialGraphSpacing() {
   }
 }
 
-function comparisonKey(sourceAnime: AnimeSearchResult, targetAnime: AnimeSearchResult) {
-  return `${sourceAnime.id}:${targetAnime.id}`
+function comparisonKey(anime: AnimeSearchResult[]) {
+  return anime.map((item) => item.id).sort((left, right) => left - right).join(':')
 }
 
 function addRecentComparison(
   current: RecentComparison[],
-  sourceAnime: AnimeSearchResult,
-  targetAnime: AnimeSearchResult,
+  anime: AnimeSearchResult[],
 ): RecentComparison[] {
-  const key = comparisonKey(sourceAnime, targetAnime)
+  const key = comparisonKey(anime)
   return [
-    { sourceAnime, targetAnime, comparedAt: new Date().toISOString() },
-    ...current.filter((item) => comparisonKey(item.sourceAnime, item.targetAnime) !== key),
+    { anime, comparedAt: new Date().toISOString() },
+    ...current.filter((item) => comparisonKey(item.anime) !== key),
   ].slice(0, RECENT_COMPARISON_LIMIT)
+}
+
+function selectedAnimeNodeIds(selectedAnime: AnimeSearchResult[]) {
+  return selectedAnime.map((anime) => `anime:${anime.id}`)
+}
+
+function selectedAnimeLabel(selectedAnime: AnimeSearchResult[]) {
+  if (selectedAnime.length <= 3) {
+    return selectedAnime.map(titleFor).join(' / ')
+  }
+  return `${selectedAnime.slice(0, 3).map(titleFor).join(' / ')} +${selectedAnime.length - 3}`
 }
 
 function compileEdgeFilterRegex(pattern: string) {
@@ -376,8 +389,7 @@ function filterGraph(
   showOnlyMainStudioEdges: boolean,
   highlightAllPaths: boolean,
   edgeFilterRegex: string,
-  sourceAnime: AnimeSearchResult | null,
-  targetAnime: AnimeSearchResult | null,
+  selectedAnime: AnimeSearchResult[],
 ): GraphResponse | null {
   if (!graph) {
     return null
@@ -433,10 +445,8 @@ function filterGraph(
   visibleNodeIds = new Set(nodes.map((node) => String(node.data.id)))
   edges = edges.filter((edge) => visibleNodeIds.has(String(edge.data.source)) && visibleNodeIds.has(String(edge.data.target)))
 
-  if (showOnlySharedComparisonNodes && sourceAnime && targetAnime) {
-    const sourceNodeId = `anime:${sourceAnime.id}`
-    const targetNodeId = `anime:${targetAnime.id}`
-    const comparisonNodeIds = new Set([sourceNodeId, targetNodeId])
+  if (showOnlySharedComparisonNodes && selectedAnime.length >= MIN_COMPARE_ANIME) {
+    const comparisonNodeIds = new Set(selectedAnimeNodeIds(selectedAnime))
     const comparisonNeighbors = new Map<string, Set<string>>()
 
     for (const edge of edges) {
@@ -460,7 +470,7 @@ function filterGraph(
         return true
       }
       const neighbors = comparisonNeighbors.get(nodeId)
-      return Boolean(neighbors?.has(sourceNodeId) && neighbors.has(targetNodeId))
+      return Boolean(neighbors && Array.from(comparisonNodeIds).every((comparisonNodeId) => neighbors.has(comparisonNodeId)))
     })
     visibleNodeIds = new Set(nodes.map((node) => String(node.data.id)))
     edges = edges.filter((edge) => visibleNodeIds.has(String(edge.data.source)) && visibleNodeIds.has(String(edge.data.target)))
@@ -478,8 +488,8 @@ function filterGraph(
   }
 
   const allPathHighlights =
-    highlightAllPaths && sourceAnime && targetAnime
-      ? connectedHighlights(edges, `anime:${sourceAnime.id}`, `anime:${targetAnime.id}`)
+    highlightAllPaths && selectedAnime.length >= MIN_COMPARE_ANIME
+      ? connectedHighlights(edges, selectedAnimeNodeIds(selectedAnime))
       : null
   const highlightedPath = allPathHighlights
     ? nodes.map((node) => String(node.data.id)).filter((nodeId) => allPathHighlights.nodeIds.has(nodeId))
@@ -498,7 +508,7 @@ function filterGraph(
   }
 }
 
-function connectedHighlights(edges: GraphResponse['edges'], sourceNodeId: string, targetNodeId: string) {
+function connectedHighlights(edges: GraphResponse['edges'], selectedNodeIds: string[]) {
   const adjacency = new Map<string, Set<string>>()
   for (const edge of edges) {
     const source = typeof edge.data.source === 'string' ? edge.data.source : ''
@@ -514,8 +524,12 @@ function connectedHighlights(edges: GraphResponse['edges'], sourceNodeId: string
     adjacency.set(target, targetNeighbors)
   }
 
+  if (selectedNodeIds.length === 0) {
+    return { nodeIds: new Set<string>(), edgeIds: new Set<string>() }
+  }
+
   const nodeIds = new Set<string>()
-  const queue = [sourceNodeId]
+  const queue = [selectedNodeIds[0]]
   for (let index = 0; index < queue.length; index += 1) {
     const nodeId = queue[index]
     if (nodeIds.has(nodeId)) {
@@ -527,7 +541,7 @@ function connectedHighlights(edges: GraphResponse['edges'], sourceNodeId: string
     }
   }
 
-  if (!nodeIds.has(targetNodeId)) {
+  if (!selectedNodeIds.every((nodeId) => nodeIds.has(nodeId))) {
     return { nodeIds: new Set<string>(), edgeIds: new Set<string>() }
   }
 
@@ -558,34 +572,33 @@ function numericDataValue(value: unknown) {
 
 function visibleGraphScore(
   graph: GraphResponse | null,
-  sourceAnime: AnimeSearchResult | null,
-  targetAnime: AnimeSearchResult | null,
+  selectedAnime: AnimeSearchResult[],
 ) {
-  if (!graph || !sourceAnime || !targetAnime) {
+  if (!graph || selectedAnime.length < MIN_COMPARE_ANIME) {
     return null
   }
 
-  const sourceNodeId = `anime:${sourceAnime.id}`
-  const targetNodeId = `anime:${targetAnime.id}`
+  const comparisonNodeIds = selectedAnimeNodeIds(selectedAnime)
   const nodesById = new Map(graph.nodes.map((node) => [String(node.data.id), node]))
-  if (!nodesById.has(sourceNodeId) || !nodesById.has(targetNodeId)) {
+  if (!comparisonNodeIds.every((nodeId) => nodesById.has(nodeId))) {
     return null
   }
 
-  const connectorEdges = new Map<string, { sourceWeight?: number; targetWeight?: number }>()
+  const comparisonNodeIdSet = new Set(comparisonNodeIds)
+  const connectorEdges = new Map<string, Map<string, number>>()
   for (const edge of graph.edges) {
     const source = String(edge.data.source ?? '')
     const target = String(edge.data.target ?? '')
     const weight = numericDataValue(edge.data.weight)
 
-    if (source === sourceNodeId && target !== targetNodeId) {
-      connectorEdges.set(target, { ...connectorEdges.get(target), sourceWeight: weight })
-    } else if (target === sourceNodeId && source !== targetNodeId) {
-      connectorEdges.set(source, { ...connectorEdges.get(source), sourceWeight: weight })
-    } else if (source === targetNodeId && target !== sourceNodeId) {
-      connectorEdges.set(target, { ...connectorEdges.get(target), targetWeight: weight })
-    } else if (target === targetNodeId && source !== sourceNodeId) {
-      connectorEdges.set(source, { ...connectorEdges.get(source), targetWeight: weight })
+    if (comparisonNodeIdSet.has(source) && !comparisonNodeIdSet.has(target)) {
+      const weights = connectorEdges.get(target) ?? new Map<string, number>()
+      weights.set(source, weight)
+      connectorEdges.set(target, weights)
+    } else if (comparisonNodeIdSet.has(target) && !comparisonNodeIdSet.has(source)) {
+      const weights = connectorEdges.get(source) ?? new Map<string, number>()
+      weights.set(target, weight)
+      connectorEdges.set(source, weights)
     }
   }
 
@@ -594,8 +607,8 @@ function visibleGraphScore(
   let voiceActorPoints = 0
   let popularityPoints = 0
 
-  for (const [nodeId, weights] of connectorEdges) {
-    if (weights.sourceWeight === undefined || weights.targetWeight === undefined) {
+  for (const [nodeId, weightsByAnime] of connectorEdges) {
+    if (!comparisonNodeIds.every((comparisonNodeId) => weightsByAnime.has(comparisonNodeId))) {
       continue
     }
     const node = nodesById.get(nodeId)
@@ -603,13 +616,14 @@ function visibleGraphScore(
       continue
     }
 
-    const connectorWeight = Math.max(weights.sourceWeight, weights.targetWeight)
+    const weights = Array.from(weightsByAnime.values())
+    const connectorWeight = weights.reduce((total, weight) => total + weight, 0)
     const favourites = numericDataValue(node.data.favourites)
     if (node.data.type === 'staff') {
       staffPoints += connectorWeight * 5
       popularityPoints += Math.min(favourites, 30_000) / 5_000
     } else if (node.data.type === 'studio') {
-      studioPoints += (weights.sourceWeight + weights.targetWeight) * 4
+      studioPoints += connectorWeight * 4
     } else if (node.data.type === 'voiceActor') {
       voiceActorPoints += connectorWeight * 3
       popularityPoints += Math.min(favourites, 30_000) / 5_000
@@ -621,9 +635,8 @@ function visibleGraphScore(
 
 function App() {
   const graphRef = useRef<GraphViewHandle | null>(null)
-  const [sourceAnime, setSourceAnime] = useState<AnimeSearchResult | null>(null)
-  const [targetAnime, setTargetAnime] = useState<AnimeSearchResult | null>(null)
-  const [activeSlot, setActiveSlot] = useState<1 | 2>(1)
+  const [selectedAnime, setSelectedAnime] = useState<AnimeSearchResult[]>([])
+  const [activeSlotIndex, setActiveSlotIndex] = useState(0)
   const [activeFilters, setActiveFilters] = useState(() => ALL_ROLE_IDS)
   const [roleFiltersEnabled, setRoleFiltersEnabled] = useState(true)
   const [visibleNodeTypes, setVisibleNodeTypes] = useState<VisibleNodeTypes>(DEFAULT_NODE_TYPES)
@@ -672,8 +685,7 @@ function App() {
         showOnlyMainStudioEdges,
         highlightAllPaths,
         edgeFilterRegex,
-        sourceAnime,
-        targetAnime,
+        selectedAnime,
       ),
     [
       edgeFilterRegex,
@@ -684,12 +696,11 @@ function App() {
       highlightAllPaths,
       showOnlyMainStudioEdges,
       showOnlySharedComparisonNodes,
-      sourceAnime,
-      targetAnime,
+      selectedAnime,
     ],
   )
-  const canCompare = Boolean(sourceAnime && targetAnime && sourceAnime.id !== targetAnime.id)
-  const duplicateSelection = Boolean(sourceAnime && targetAnime && sourceAnime.id === targetAnime.id)
+  const canCompare = selectedAnime.length >= MIN_COMPARE_ANIME
+  const atSelectionLimit = selectedAnime.length >= MAX_COMPARE_ANIME
   const selectedEdge = useMemo(
     () => displayGraph?.edges.find((edge) => edge.data.id === selectedEdgeId) ?? null,
     [displayGraph, selectedEdgeId],
@@ -744,12 +755,10 @@ function App() {
   }, [displayGraph, selectedEdgeId])
 
   useEffect(() => {
-    if (!sourceAnime || !targetAnime) {
+    if (selectedAnime.length < MIN_COMPARE_ANIME) {
       return
     }
-    if (sourceAnime.id === targetAnime.id) {
-      return
-    }
+    const animeIds = selectedAnime.map((anime) => anime.id)
 
     let cancelled = false
     window.queueMicrotask(() => {
@@ -759,8 +768,8 @@ function App() {
       }
     })
     void Promise.all([
-      compareAnime(sourceAnime.id, targetAnime.id, [], popularityFilters),
-      fetchGraph(sourceAnime.id, targetAnime.id, [], 2, popularityFilters),
+      compareAnime(animeIds, [], popularityFilters),
+      fetchGraph(animeIds, [], 2, popularityFilters),
     ])
       .then(([nextComparison, nextGraph]) => {
         if (cancelled) return
@@ -769,7 +778,7 @@ function App() {
         setNodeDetail(null)
         setSelectedNodeId(null)
         setSelectedEdgeId(null)
-        setRecentComparisons((current) => addRecentComparison(current, sourceAnime, targetAnime))
+        setRecentComparisons((current) => addRecentComparison(current, selectedAnime))
       })
       .catch((requestError) => {
         if (cancelled) return
@@ -784,7 +793,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [popularityFilters, sourceAnime, targetAnime])
+  }, [popularityFilters, selectedAnime])
 
   const clearComparisonState = useCallback(() => {
     setComparison(null)
@@ -795,37 +804,45 @@ function App() {
   }, [])
 
   const assignAnime = useCallback(
-    (anime: AnimeSearchResult, slot = activeSlot) => {
+    (anime: AnimeSearchResult, slotIndex = activeSlotIndex) => {
       setError(null)
-      if ((slot === 1 && targetAnime?.id === anime.id) || (slot === 2 && sourceAnime?.id === anime.id)) {
+      setSelectedAnime((current) => {
+        if (current.some((item, index) => item.id === anime.id && index !== slotIndex)) {
+          setError('That anime is already selected.')
+          return current
+        }
+        if (slotIndex >= MAX_COMPARE_ANIME) {
+          setError(`You can compare up to ${MAX_COMPARE_ANIME} anime.`)
+          return current
+        }
         clearComparisonState()
-      }
-      if (slot === 1) {
-        setSourceAnime(anime)
-        if (!targetAnime) setActiveSlot(2)
-      } else {
-        setTargetAnime(anime)
-        if (!sourceAnime) setActiveSlot(1)
-      }
+        const next = [...current]
+        if (slotIndex < next.length) {
+          next[slotIndex] = anime
+        } else if (next.length < MAX_COMPARE_ANIME) {
+          next.push(anime)
+        } else {
+          setError(`You can compare up to ${MAX_COMPARE_ANIME} anime.`)
+          return current
+        }
+        setActiveSlotIndex(Math.min(next.length, MAX_COMPARE_ANIME - 1))
+        return next
+      })
     },
-    [activeSlot, clearComparisonState, sourceAnime, targetAnime],
+    [activeSlotIndex, clearComparisonState],
   )
 
-  const clearSourceAnime = () => {
-    setSourceAnime(null)
-    clearComparisonState()
-  }
-
-  const clearTargetAnime = () => {
-    setTargetAnime(null)
+  const clearAnimeSlot = (slotIndex: number) => {
+    setSelectedAnime((current) => current.filter((_, index) => index !== slotIndex))
+    setActiveSlotIndex((current) => Math.max(0, Math.min(current, selectedAnime.length - 2)))
     clearComparisonState()
   }
 
   const restoreRecentComparison = (recentComparison: RecentComparison) => {
     setError(null)
     clearComparisonState()
-    setSourceAnime(recentComparison.sourceAnime)
-    setTargetAnime(recentComparison.targetAnime)
+    setSelectedAnime(recentComparison.anime)
+    setActiveSlotIndex(Math.min(recentComparison.anime.length, MAX_COMPARE_ANIME - 1))
   }
 
   const toggleFilter = (filterId: string) => {
@@ -957,10 +974,9 @@ function App() {
       <header className="topbar">
         <h1>Six Degrees of Anime</h1>
         <CommandSearch
-          activeSlot={activeSlot}
-          sourceAnime={sourceAnime}
-          targetAnime={targetAnime}
-          onActiveSlotChange={setActiveSlot}
+          activeSlotIndex={activeSlotIndex}
+          selectedAnime={selectedAnime}
+          onActiveSlotChange={setActiveSlotIndex}
           onSelect={assignAnime}
         />
         <div className="topbar-actions">
@@ -982,11 +998,18 @@ function App() {
         <aside className={`left-panel panel ${leftPanelCollapsed ? 'collapsed' : ''}`}>
           <PanelHeader title="Compare Anime" />
           <div className="anime-slots">
-            <AnimeSlot slot={1} anime={sourceAnime} active={activeSlot === 1} onPick={() => setActiveSlot(1)} onClear={clearSourceAnime} />
-            <AnimeSlot slot={2} anime={targetAnime} active={activeSlot === 2} onPick={() => setActiveSlot(2)} onClear={clearTargetAnime} />
+            {Array.from({ length: Math.max(MIN_COMPARE_ANIME, selectedAnime.length + (atSelectionLimit ? 0 : 1)) }).map((_, index) => (
+              <AnimeSlot
+                key={selectedAnime[index]?.id ?? `empty-${index}`}
+                slot={index + 1}
+                anime={selectedAnime[index] ?? null}
+                active={activeSlotIndex === index}
+                onPick={() => setActiveSlotIndex(index)}
+                onClear={() => clearAnimeSlot(index)}
+              />
+            ))}
           </div>
 
-          {duplicateSelection ? <div className="inline-error">Pick two different anime.</div> : null}
           {error ? <div className="inline-error">{error}</div> : null}
 
           <RecentComparisons
@@ -998,8 +1021,7 @@ function App() {
           <ConnectionScore
             comparison={comparison}
             graph={displayGraph}
-            sourceAnime={sourceAnime}
-            targetAnime={targetAnime}
+            selectedAnime={selectedAnime}
             loading={isComparing}
             canCompare={canCompare}
           />
@@ -1203,17 +1225,15 @@ function SettingsModal({
 }
 
 function CommandSearch({
-  activeSlot,
-  sourceAnime,
-  targetAnime,
+  activeSlotIndex,
+  selectedAnime,
   onActiveSlotChange,
   onSelect,
 }: {
-  activeSlot: 1 | 2
-  sourceAnime: AnimeSearchResult | null
-  targetAnime: AnimeSearchResult | null
-  onActiveSlotChange: (slot: 1 | 2) => void
-  onSelect: (anime: AnimeSearchResult, slot?: 1 | 2) => void
+  activeSlotIndex: number
+  selectedAnime: AnimeSearchResult[]
+  onActiveSlotChange: (slotIndex: number) => void
+  onSelect: (anime: AnimeSearchResult, slotIndex?: number) => void
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -1258,8 +1278,8 @@ function CommandSearch({
     }
   }, [query])
 
-  const choose = (anime: AnimeSearchResult, slot = activeSlot) => {
-    onSelect(anime, slot)
+  const choose = (anime: AnimeSearchResult, slotIndex = activeSlotIndex) => {
+    onSelect(anime, slotIndex)
     setQuery(titleFor(anime))
     setOpen(false)
   }
@@ -1296,12 +1316,11 @@ function CommandSearch({
       {open ? (
         <div className="command-popover">
           <div className="slot-tabs" role="tablist" aria-label="Assignment slot">
-            <button type="button" className={activeSlot === 1 ? 'active' : ''} onClick={() => onActiveSlotChange(1)}>
-              Slot 1 {sourceAnime ? `• ${titleFor(sourceAnime)}` : ''}
-            </button>
-            <button type="button" className={activeSlot === 2 ? 'active' : ''} onClick={() => onActiveSlotChange(2)}>
-              Slot 2 {targetAnime ? `• ${titleFor(targetAnime)}` : ''}
-            </button>
+            {Array.from({ length: Math.max(MIN_COMPARE_ANIME, selectedAnime.length + (selectedAnime.length < MAX_COMPARE_ANIME ? 1 : 0)) }).map((_, index) => (
+              <button key={selectedAnime[index]?.id ?? `slot-${index}`} type="button" className={activeSlotIndex === index ? 'active' : ''} onClick={() => onActiveSlotChange(index)}>
+                Slot {index + 1} {selectedAnime[index] ? `• ${titleFor(selectedAnime[index])}` : ''}
+              </button>
+            ))}
           </div>
           {loading ? <p className="command-state"><Loader2 className="spin" size={16} /> Searching AniList...</p> : null}
           {error ? <p className="command-state error-text">{error}</p> : null}
@@ -1314,8 +1333,9 @@ function CommandSearch({
                   <span>{titleFor(anime)}</span>
                   <small>{formatMeta(anime)}</small>
                 </button>
-                <button type="button" className="mini-assign" onClick={() => choose(anime, 1)}>1</button>
-                <button type="button" className="mini-assign" onClick={() => choose(anime, 2)}>2</button>
+                {Array.from({ length: Math.max(MIN_COMPARE_ANIME, selectedAnime.length + (selectedAnime.length < MAX_COMPARE_ANIME ? 1 : 0)) }).map((_, index) => (
+                  <button key={index} type="button" className="mini-assign" onClick={() => choose(anime, index)}>{index + 1}</button>
+                ))}
               </div>
             ))}
           </div>
@@ -1338,17 +1358,19 @@ function AnimeSlot({
   slot,
   anime,
   active,
+  disabled = false,
   onPick,
   onClear,
 }: {
-  slot: 1 | 2
+  slot: number
   anime: AnimeSearchResult | null
   active: boolean
+  disabled?: boolean
   onPick: () => void
   onClear: () => void
 }) {
   return (
-    <button type="button" className={`anime-slot ${active ? 'active' : ''}`} onClick={onPick}>
+    <button type="button" className={`anime-slot ${active ? 'active' : ''}`} onClick={onPick} disabled={disabled}>
       <span className="slot-number">{slot}</span>
       {anime ? <AnimeThumb anime={anime} /> : <span className="empty-thumb"><Plus size={20} /></span>}
       <span className="slot-copy">
@@ -1402,17 +1424,17 @@ function RecentComparisons({
           {items.length === 0 ? <p className="muted">Completed comparisons will appear here.</p> : null}
           {items.map((item) => (
             <button
-              key={`${item.sourceAnime.id}-${item.targetAnime.id}-${item.comparedAt}`}
+              key={`${comparisonKey(item.anime)}-${item.comparedAt}`}
               type="button"
               className="recent-row"
               onClick={() => onSelect(item)}
             >
               <span className="recent-pair">
-                <strong>{titleFor(item.sourceAnime)}</strong>
+                <strong>{selectedAnimeLabel(item.anime)}</strong>
                 <ArrowRightLeft size={13} />
-                <strong>{titleFor(item.targetAnime)}</strong>
+                <strong>{item.anime.length} anime</strong>
               </span>
-              <small>{formatMeta(item.sourceAnime)} / {formatMeta(item.targetAnime)}</small>
+              <small>{item.anime.map(formatMeta).join(' / ')}</small>
             </button>
           ))}
         </div>
@@ -1424,20 +1446,18 @@ function RecentComparisons({
 function ConnectionScore({
   comparison,
   graph,
-  sourceAnime,
-  targetAnime,
+  selectedAnime,
   loading,
   canCompare,
 }: {
   comparison: CompareResponse | null
   graph: GraphResponse | null
-  sourceAnime: AnimeSearchResult | null
-  targetAnime: AnimeSearchResult | null
+  selectedAnime: AnimeSearchResult[]
   loading: boolean
   canCompare: boolean
 }) {
   const realScore = Math.round(comparison?.score ?? 0)
-  const graphScore = visibleGraphScore(graph, sourceAnime, targetAnime)
+  const graphScore = visibleGraphScore(graph, selectedAnime)
   const tooltipText = 'Real score uses the full comparison result. Visible graph score is recalculated from the graph currently on screen after filters.'
   return (
     <section className="score-card">
@@ -1464,7 +1484,7 @@ function ConnectionScore({
               </div>
             </div>
           ) : null}
-          {!comparison ? <p>{canCompare ? 'Comparison will run automatically.' : 'Choose two anime to compare.'}</p> : null}
+          {!comparison ? <p>{canCompare ? 'Comparison will run automatically.' : 'Choose at least two anime to compare.'}</p> : null}
         </>
       )}
     </section>
@@ -2082,8 +2102,8 @@ function RoleFilters({
           >
             <ArrowRightLeft size={14} />
             <span>
-              <strong>Connected to both anime</strong>
-              <em>Only show nodes linked to both compared anime</em>
+              <strong>Connected to all selected anime</strong>
+              <em>Only show nodes linked to every compared anime</em>
             </span>
             <span className={`switch ${showOnlySharedComparisonNodes ? 'on' : ''}`} aria-hidden="true" />
           </button>

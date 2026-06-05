@@ -31,25 +31,22 @@ class GraphService:
     def compare(
         self,
         session: Session,
-        source_id: int,
-        target_id: int,
+        anime_ids: list[int],
         role_filters: list[str] | None,
         staff_min_favourites: int = 0,
         staff_limit: int | None = 40,
     ) -> CompareResponse:
-        source = self._get_anime(session, source_id)
-        target = self._get_anime(session, target_id)
+        anime = [self._get_anime(session, anime_id) for anime_id in anime_ids]
         allowed_staff_ids = self._allowed_staff_ids(session, staff_min_favourites, staff_limit)
-        shared_staff = self._shared_staff(session, source_id, target_id, role_filters, allowed_staff_ids)
-        shared_studios = self._shared_studios(session, source_id, target_id, role_filters)
-        shared_voice_actors = self._shared_voice_actors(session, source_id, target_id)
-        graph = self._build_graph(session, role_filters, allowed_staff_ids, anime_ids={source_id, target_id})
-        path = self._shortest_path(graph, f"anime:{source_id}", f"anime:{target_id}")
+        shared_staff = self._shared_staff(session, anime_ids, role_filters, allowed_staff_ids)
+        shared_studios = self._shared_studios(session, anime_ids, role_filters)
+        shared_voice_actors = self._shared_voice_actors(session, anime_ids)
+        graph = self._build_graph(session, role_filters, allowed_staff_ids, anime_ids=set(anime_ids))
+        path = self._selected_shortest_path_nodes(graph, anime_ids)
         breakdown = self._score_breakdown(shared_staff, shared_studios, shared_voice_actors, len(path))
         score = min(100.0, sum(breakdown.model_dump().values()))
         return CompareResponse(
-            sourceAnime=anime_to_detail(source),
-            targetAnime=anime_to_detail(target),
+            anime=[anime_to_detail(item) for item in anime],
             sharedStaff=shared_staff,
             sharedStudios=shared_studios,
             sharedVoiceActors=shared_voice_actors,
@@ -61,27 +58,26 @@ class GraphService:
     def cytoscape_graph(
         self,
         session: Session,
-        source_id: int,
-        target_id: int,
+        anime_ids: list[int],
         role_filters: list[str] | None,
         max_depth: int,
         staff_min_favourites: int = 0,
         staff_limit: int | None = 40,
     ) -> GraphResponse:
         allowed_staff_ids = self._allowed_staff_ids(session, staff_min_favourites, staff_limit)
-        graph = self._build_graph(session, role_filters, allowed_staff_ids, anime_ids={source_id, target_id})
-        source_node = f"anime:{source_id}"
-        target_node = f"anime:{target_id}"
-        if source_node not in graph or target_node not in graph:
+        graph = self._build_graph(session, role_filters, allowed_staff_ids, anime_ids=set(anime_ids))
+        selected_nodes = [f"anime:{anime_id}" for anime_id in anime_ids]
+        existing_selected_nodes = [node_id for node_id in selected_nodes if node_id in graph]
+        if not existing_selected_nodes:
             return GraphResponse(nodes=[], edges=[], highlightedPath=[])
 
-        shortest_path = self._shortest_path(graph, source_node, target_node)
-        visible_nodes = set(shortest_path) | {source_node, target_node}
-        visible_nodes |= self._bounded_neighbors(graph, source_node, max_depth)
-        visible_nodes |= self._bounded_neighbors(graph, target_node, max_depth)
+        shortest_path = self._selected_shortest_path_nodes(graph, anime_ids)
+        visible_nodes = set(shortest_path) | set(existing_selected_nodes)
+        for node_id in existing_selected_nodes:
+            visible_nodes |= self._bounded_neighbors(graph, node_id, max_depth)
 
         if len(visible_nodes) > 140:
-            required = set(shortest_path) | {source_node, target_node}
+            required = set(shortest_path) | set(existing_selected_nodes)
             ranked = sorted(
                 (node for node in visible_nodes if node not in required),
                 key=lambda node: graph.degree(node),
@@ -90,10 +86,7 @@ class GraphService:
             visible_nodes = required | set(ranked[: 140 - len(required)])
 
         highlighted_nodes = set(shortest_path)
-        highlighted_edges = {
-            self._edge_id(shortest_path[index], shortest_path[index + 1])
-            for index in range(len(shortest_path) - 1)
-        }
+        highlighted_edges = self._selected_shortest_path_edge_ids(graph, anime_ids)
 
         nodes = [
             CytoscapeElement(data=self._cy_node(graph, node_id), classes="highlighted" if node_id in highlighted_nodes else "")
@@ -335,31 +328,39 @@ class GraphService:
     def _shared_staff(
         self,
         session: Session,
-        source_id: int,
-        target_id: int,
+        anime_ids: list[int],
         role_filters: list[str] | None,
         allowed_staff_ids: set[int] | None = None,
     ) -> list[SharedStaff]:
-        source_roles = self._roles_by_staff(included_staff_roles(session, source_id, role_filters))
-        target_roles = self._roles_by_staff(included_staff_roles(session, target_id, role_filters))
-        shared_ids = set(source_roles) & set(target_roles)
+        roles_by_anime = {
+            anime_id: self._roles_by_staff(included_staff_roles(session, anime_id, role_filters))
+            for anime_id in anime_ids
+        }
+        shared_ids = self._shared_connection_ids(roles_by_anime)
         if allowed_staff_ids is not None:
             shared_ids &= allowed_staff_ids
         staff_by_id = {staff.id: staff for staff in session.exec(select(Staff).where(Staff.id.in_(shared_ids))).all()} if shared_ids else {}
         results: list[SharedStaff] = []
         for staff_id in shared_ids:
             staff = staff_by_id[staff_id]
-            all_roles = source_roles[staff_id] + target_roles[staff_id]
+            roles_for_staff_by_anime = {
+                anime_id: roles_by_anime[anime_id][staff_id]
+                for anime_id in anime_ids
+            }
+            all_roles = [role for roles in roles_for_staff_by_anime.values() for role in roles]
             categories = sorted({role.role_category for role in all_roles})
-            weight = max(role.weight for role in all_roles) * popularity_multiplier(staff.favourites)
+            weight = sum(max(role.weight for role in roles) for roles in roles_for_staff_by_anime.values())
+            weight *= popularity_multiplier(staff.favourites)
             results.append(
                 SharedStaff(
                     staffId=staff_id,
                     name=staff.name_full,
                     imageUrl=staff.image_url,
                     favourites=staff.favourites,
-                    sourceRoles=sorted({role.role for role in source_roles[staff_id]}),
-                    targetRoles=sorted({role.role for role in target_roles[staff_id]}),
+                    rolesByAnime={
+                        anime_id: sorted({role.role for role in roles})
+                        for anime_id, roles in roles_for_staff_by_anime.items()
+                    },
                     roleCategories=categories,
                     weight=round(weight, 2),
                 )
@@ -380,52 +381,76 @@ class GraphService:
     def _shared_studios(
         self,
         session: Session,
-        source_id: int,
-        target_id: int,
+        anime_ids: list[int],
         role_filters: list[str] | None,
     ) -> list[SharedStudio]:
         normalized_filters = normalize_role_filters(role_filters)
         if normalized_filters and "studio" not in normalized_filters:
             return []
-        source = {rel.studio_id: rel for rel in session.exec(select(AnimeStudio).where(AnimeStudio.anime_id == source_id)).all()}
-        target = {rel.studio_id: rel for rel in session.exec(select(AnimeStudio).where(AnimeStudio.anime_id == target_id)).all()}
-        shared_ids = set(source) & set(target)
+        studios_by_anime = {
+            anime_id: {
+                rel.studio_id: rel
+                for rel in session.exec(select(AnimeStudio).where(AnimeStudio.anime_id == anime_id)).all()
+            }
+            for anime_id in anime_ids
+        }
+        shared_ids = self._shared_connection_ids(studios_by_anime)
         studios = {studio.id: studio for studio in session.exec(select(Studio).where(Studio.id.in_(shared_ids))).all()} if shared_ids else {}
         results = [
             SharedStudio(
                 studioId=studio_id,
                 name=studios[studio_id].name,
-                sourceIsMain=source[studio_id].is_main,
-                targetIsMain=target[studio_id].is_main,
-                weight=round(source[studio_id].weight + target[studio_id].weight, 2),
+                isMainByAnime={
+                    anime_id: studios_by_anime[anime_id][studio_id].is_main
+                    for anime_id in anime_ids
+                },
+                weight=round(sum(studios_by_anime[anime_id][studio_id].weight for anime_id in anime_ids), 2),
             )
             for studio_id in shared_ids
         ]
         return sorted(results, key=lambda item: item.weight, reverse=True)
 
-    def _shared_voice_actors(self, session: Session, source_id: int, target_id: int) -> list[SharedVoiceActor]:
-        source_roles = self._roles_by_voice_actor(session.exec(select(AnimeVoiceActorRole).where(AnimeVoiceActorRole.anime_id == source_id)).all())
-        target_roles = self._roles_by_voice_actor(session.exec(select(AnimeVoiceActorRole).where(AnimeVoiceActorRole.anime_id == target_id)).all())
-        shared_ids = set(source_roles) & set(target_roles)
+    def _shared_voice_actors(self, session: Session, anime_ids: list[int]) -> list[SharedVoiceActor]:
+        roles_by_anime = {
+            anime_id: self._roles_by_voice_actor(session.exec(select(AnimeVoiceActorRole).where(AnimeVoiceActorRole.anime_id == anime_id)).all())
+            for anime_id in anime_ids
+        }
+        shared_ids = self._shared_connection_ids(roles_by_anime)
         actors = {actor.id: actor for actor in session.exec(select(VoiceActor).where(VoiceActor.id.in_(shared_ids))).all()} if shared_ids else {}
         results: list[SharedVoiceActor] = []
         for actor_id in shared_ids:
             actor = actors[actor_id]
-            all_roles = source_roles[actor_id] + target_roles[actor_id]
-            weight = max(role.weight for role in all_roles) * popularity_multiplier(actor.favourites)
+            roles_for_actor_by_anime = {
+                anime_id: roles_by_anime[anime_id][actor_id]
+                for anime_id in anime_ids
+            }
+            all_roles = [role for roles in roles_for_actor_by_anime.values() for role in roles]
+            weight = sum(max(role.weight for role in roles) for roles in roles_for_actor_by_anime.values())
+            weight *= popularity_multiplier(actor.favourites)
             results.append(
                 SharedVoiceActor(
                     voiceActorId=actor_id,
                     name=actor.name_full,
                     imageUrl=actor.image_url,
                     favourites=actor.favourites,
-                    sourceCharacters=sorted({role.character_name for role in source_roles[actor_id]}),
-                    targetCharacters=sorted({role.character_name for role in target_roles[actor_id]}),
+                    charactersByAnime={
+                        anime_id: sorted({role.character_name for role in roles})
+                        for anime_id, roles in roles_for_actor_by_anime.items()
+                    },
                     roleCategories=sorted({role.role_category for role in all_roles}),
                     weight=round(weight, 2),
                 )
             )
         return sorted(results, key=lambda item: item.weight, reverse=True)
+
+    def _shared_connection_ids(self, grouped_by_anime: dict[int, dict[int, Any]]) -> set[int]:
+        grouped_values = list(grouped_by_anime.values())
+        if not grouped_values:
+            return set()
+        shared_ids = set(grouped_values[0])
+        for grouped in grouped_values[1:]:
+            shared_ids &= set(grouped)
+        return shared_ids
 
     def _roles_by_staff(self, roles: list[AnimeStaffRole]) -> dict[int, list[AnimeStaffRole]]:
         grouped: dict[int, list[AnimeStaffRole]] = defaultdict(list)
@@ -463,6 +488,33 @@ class GraphService:
             return nx.shortest_path(graph, source=source, target=target, weight="distance")
         except (nx.NetworkXNoPath, nx.NodeNotFound):
             return []
+
+    def _selected_shortest_paths(self, graph: nx.Graph, anime_ids: list[int]) -> list[list[str]]:
+        selected_nodes = [f"anime:{anime_id}" for anime_id in anime_ids]
+        paths: list[list[str]] = []
+        for index in range(len(selected_nodes) - 1):
+            path = self._shortest_path(graph, selected_nodes[index], selected_nodes[index + 1])
+            if path:
+                paths.append(path)
+        return paths
+
+    def _selected_shortest_path_nodes(self, graph: nx.Graph, anime_ids: list[int]) -> list[str]:
+        ordered_nodes: list[str] = []
+        seen: set[str] = set()
+        for path in self._selected_shortest_paths(graph, anime_ids):
+            for node_id in path:
+                if node_id not in seen:
+                    ordered_nodes.append(node_id)
+                    seen.add(node_id)
+        return ordered_nodes
+
+    def _selected_shortest_path_edge_ids(self, graph: nx.Graph, anime_ids: list[int]) -> set[str]:
+        edge_ids: set[str] = set()
+        for path in self._selected_shortest_paths(graph, anime_ids):
+            for index in range(len(path) - 1):
+                if graph.has_edge(path[index], path[index + 1]):
+                    edge_ids.add(graph.edges[path[index], path[index + 1]]["id"])
+        return edge_ids
 
     def _bounded_neighbors(self, graph: nx.Graph, start: str, max_depth: int) -> set[str]:
         visited = {start}

@@ -88,12 +88,15 @@ def test_search_endpoint_returns_normalized_results(client: TestClient, monkeypa
 def test_compare_and_graph_endpoints_refresh_missing_cache(client: TestClient, monkeypatch):
     monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeAniListClient()))
 
-    compare = client.post("/api/compare", json={"sourceAnimeId": 1, "targetAnimeId": 2, "roleFilters": []})
-    graph = client.post("/api/graph", json={"sourceAnimeId": 1, "targetAnimeId": 2, "roleFilters": [], "maxDepth": 1})
+    compare = client.post("/api/compare", json={"animeIds": [1, 2, 3], "roleFilters": []})
+    graph = client.post("/api/graph", json={"animeIds": [1, 2, 3], "roleFilters": [], "maxDepth": 1})
 
     assert compare.status_code == 200
+    assert [anime["id"] for anime in compare.json()["anime"]] == [1, 2, 3]
     assert compare.json()["sharedStaff"][0]["name"] == "Shared Director"
+    assert set(compare.json()["sharedStaff"][0]["rolesByAnime"]) == {"1", "2", "3"}
     assert compare.json()["sharedVoiceActors"][0]["name"] == "Shared Voice Actor"
+    assert set(compare.json()["sharedVoiceActors"][0]["charactersByAnime"]) == {"1", "2", "3"}
     assert compare.json()["score"] > 0
     assert graph.status_code == 200
     assert graph.json()["nodes"]
@@ -101,9 +104,21 @@ def test_compare_and_graph_endpoints_refresh_missing_cache(client: TestClient, m
     assert graph.json()["highlightedPath"]
 
 
+def test_compare_and_graph_validate_anime_ids(client: TestClient, monkeypatch):
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeAniListClient()))
+
+    too_few = client.post("/api/compare", json={"animeIds": [1], "roleFilters": []})
+    duplicate = client.post("/api/compare", json={"animeIds": [1, 1], "roleFilters": []})
+    too_many = client.post("/api/graph", json={"animeIds": [1, 2, 3, 4, 5, 6, 7], "roleFilters": [], "maxDepth": 1})
+
+    assert too_few.status_code == 422
+    assert duplicate.status_code == 422
+    assert too_many.status_code == 422
+
+
 def test_node_detail_endpoint(client: TestClient, monkeypatch):
     monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeAniListClient()))
-    client.post("/api/compare", json={"sourceAnimeId": 1, "targetAnimeId": 2, "roleFilters": []})
+    client.post("/api/compare", json={"animeIds": [1, 2], "roleFilters": []})
 
     response = client.get("/api/nodes/staff/100")
 
@@ -114,7 +129,7 @@ def test_node_detail_endpoint(client: TestClient, monkeypatch):
 
 def test_voice_actor_node_detail_endpoint(client: TestClient, monkeypatch):
     monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeAniListClient()))
-    client.post("/api/compare", json={"sourceAnimeId": 1, "targetAnimeId": 2, "roleFilters": []})
+    client.post("/api/compare", json={"animeIds": [1, 2], "roleFilters": []})
 
     response = client.get("/api/nodes/voiceActor/400")
 

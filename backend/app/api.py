@@ -43,12 +43,11 @@ def get_anime(anime_id: int, session: Session = Depends(get_session)) -> AnimeDe
 
 @router.post("/compare", response_model=CompareResponse)
 async def compare_anime(request: CompareRequest, session: Session = Depends(get_session)) -> CompareResponse:
-    await cache_service.ensure_anime_loaded(session, request.sourceAnimeId)
-    await cache_service.ensure_anime_loaded(session, request.targetAnimeId)
+    for anime_id in request.animeIds:
+        await cache_service.ensure_anime_loaded(session, anime_id)
     return graph_service.compare(
         session,
-        request.sourceAnimeId,
-        request.targetAnimeId,
+        request.animeIds,
         request.roleFilters,
         request.staffMinFavourites,
         request.staffLimit,
@@ -57,12 +56,11 @@ async def compare_anime(request: CompareRequest, session: Session = Depends(get_
 
 @router.post("/graph", response_model=GraphResponse)
 async def graph(request: GraphRequest, session: Session = Depends(get_session)) -> GraphResponse:
-    await cache_service.ensure_anime_loaded(session, request.sourceAnimeId)
-    await cache_service.ensure_anime_loaded(session, request.targetAnimeId)
+    for anime_id in request.animeIds:
+        await cache_service.ensure_anime_loaded(session, anime_id)
     return graph_service.cytoscape_graph(
         session,
-        request.sourceAnimeId,
-        request.targetAnimeId,
+        request.animeIds,
         request.roleFilters,
         request.maxDepth,
         request.staffMinFavourites,
