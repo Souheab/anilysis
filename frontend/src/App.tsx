@@ -66,7 +66,7 @@ const FILTER_SECTION_STORAGE_KEY = 'anime-six-degrees.filterSections.v1'
 const RECENT_COMPARISONS_STORAGE_KEY = 'anime-six-degrees.recentComparisons.v1'
 const SETTINGS_STORAGE_KEY = 'anime-six-degrees.settings.v1'
 const RECENT_COMPARISON_LIMIT = 10
-const MIN_COMPARE_ANIME = 2
+const MIN_ANALYSIS_ANIME = 1
 const MAX_COMPARE_ANIME = 6
 const ALL_ROLE_IDS = ROLE_FILTERS.map((filter) => filter.id)
 const DEFAULT_NODE_TYPES = { anime: true, staff: true, voiceActor: true, studio: true }
@@ -188,7 +188,7 @@ function isRecentComparison(value: unknown): value is RecentComparison {
   const comparison = value as Partial<RecentComparison>
   return (
     Array.isArray(comparison.anime) &&
-    comparison.anime.length >= MIN_COMPARE_ANIME &&
+    comparison.anime.length >= MIN_ANALYSIS_ANIME &&
     comparison.anime.length <= MAX_COMPARE_ANIME &&
     comparison.anime.every(isAnimeSearchResult) &&
     typeof comparison.comparedAt === 'string'
@@ -445,7 +445,7 @@ function filterGraph(
   visibleNodeIds = new Set(nodes.map((node) => String(node.data.id)))
   edges = edges.filter((edge) => visibleNodeIds.has(String(edge.data.source)) && visibleNodeIds.has(String(edge.data.target)))
 
-  if (showOnlySharedComparisonNodes && selectedAnime.length >= MIN_COMPARE_ANIME) {
+  if (showOnlySharedComparisonNodes && selectedAnime.length >= MIN_ANALYSIS_ANIME) {
     const comparisonNodeIds = new Set(selectedAnimeNodeIds(selectedAnime))
     const comparisonNeighbors = new Map<string, Set<string>>()
 
@@ -488,7 +488,7 @@ function filterGraph(
   }
 
   const allPathHighlights =
-    highlightAllPaths && selectedAnime.length >= MIN_COMPARE_ANIME
+    highlightAllPaths && selectedAnime.length >= 2
       ? connectedHighlights(edges, selectedAnimeNodeIds(selectedAnime))
       : null
   const highlightedPath = allPathHighlights
@@ -574,7 +574,7 @@ function visibleGraphScore(
   graph: GraphResponse | null,
   selectedAnime: AnimeSearchResult[],
 ) {
-  if (!graph || selectedAnime.length < MIN_COMPARE_ANIME) {
+  if (!graph || selectedAnime.length < 2) {
     return null
   }
 
@@ -699,7 +699,7 @@ function App() {
       selectedAnime,
     ],
   )
-  const canCompare = selectedAnime.length >= MIN_COMPARE_ANIME
+  const canAnalyze = selectedAnime.length >= MIN_ANALYSIS_ANIME
   const atSelectionLimit = selectedAnime.length >= MAX_COMPARE_ANIME
   const selectedEdge = useMemo(
     () => displayGraph?.edges.find((edge) => edge.data.id === selectedEdgeId) ?? null,
@@ -755,7 +755,7 @@ function App() {
   }, [displayGraph, selectedEdgeId])
 
   useEffect(() => {
-    if (selectedAnime.length < MIN_COMPARE_ANIME) {
+    if (selectedAnime.length < MIN_ANALYSIS_ANIME) {
       return
     }
     const animeIds = selectedAnime.map((anime) => anime.id)
@@ -812,7 +812,7 @@ function App() {
           return current
         }
         if (slotIndex >= MAX_COMPARE_ANIME) {
-          setError(`You can compare up to ${MAX_COMPARE_ANIME} anime.`)
+          setError(`You can analyze up to ${MAX_COMPARE_ANIME} anime.`)
           return current
         }
         clearComparisonState()
@@ -822,7 +822,7 @@ function App() {
         } else if (next.length < MAX_COMPARE_ANIME) {
           next.push(anime)
         } else {
-          setError(`You can compare up to ${MAX_COMPARE_ANIME} anime.`)
+          setError(`You can analyze up to ${MAX_COMPARE_ANIME} anime.`)
           return current
         }
         setActiveSlotIndex(Math.min(next.length, MAX_COMPARE_ANIME - 1))
@@ -975,8 +975,6 @@ function App() {
         <h1>Six Degrees of Anime</h1>
         <CommandSearch
           activeSlotIndex={activeSlotIndex}
-          selectedAnime={selectedAnime}
-          onActiveSlotChange={setActiveSlotIndex}
           onSelect={assignAnime}
         />
         <div className="topbar-actions">
@@ -996,9 +994,10 @@ function App() {
         }
       >
         <aside className={`left-panel panel ${leftPanelCollapsed ? 'collapsed' : ''}`}>
-          <PanelHeader title="Compare Anime" />
+          <PanelHeader title="Analyze Anime" />
           <div className="anime-slots">
-            {Array.from({ length: Math.max(MIN_COMPARE_ANIME, selectedAnime.length + (atSelectionLimit ? 0 : 1)) }).map((_, index) => (
+            {selectedAnime.length === 0 ? <p className="muted">Add at least one anime to begin analysis</p> : null}
+            {Array.from({ length: selectedAnime.length === 0 ? 0 : selectedAnime.length + (atSelectionLimit ? 0 : 1) }).map((_, index) => (
               <AnimeSlot
                 key={selectedAnime[index]?.id ?? `empty-${index}`}
                 slot={index + 1}
@@ -1023,7 +1022,7 @@ function App() {
             graph={displayGraph}
             selectedAnime={selectedAnime}
             loading={isComparing}
-            canCompare={canCompare}
+            canAnalyze={canAnalyze}
           />
           <TopSharedStaff items={comparison?.sharedStaff ?? []} onSelect={(staff) => void selectNode(`staff:${staff.staffId}`)} />
           <TopSharedVoiceActors items={comparison?.sharedVoiceActors ?? []} onSelect={(actor) => void selectNode(`voice_actor:${actor.voiceActorId}`)} />
@@ -1226,13 +1225,9 @@ function SettingsModal({
 
 function CommandSearch({
   activeSlotIndex,
-  selectedAnime,
-  onActiveSlotChange,
   onSelect,
 }: {
   activeSlotIndex: number
-  selectedAnime: AnimeSearchResult[]
-  onActiveSlotChange: (slotIndex: number) => void
   onSelect: (anime: AnimeSearchResult, slotIndex?: number) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -1315,13 +1310,6 @@ function CommandSearch({
       </div>
       {open ? (
         <div className="command-popover">
-          <div className="slot-tabs" role="tablist" aria-label="Assignment slot">
-            {Array.from({ length: Math.max(MIN_COMPARE_ANIME, selectedAnime.length + (selectedAnime.length < MAX_COMPARE_ANIME ? 1 : 0)) }).map((_, index) => (
-              <button key={selectedAnime[index]?.id ?? `slot-${index}`} type="button" className={activeSlotIndex === index ? 'active' : ''} onClick={() => onActiveSlotChange(index)}>
-                Slot {index + 1} {selectedAnime[index] ? `• ${titleFor(selectedAnime[index])}` : ''}
-              </button>
-            ))}
-          </div>
           {loading ? <p className="command-state"><Loader2 className="spin" size={16} /> Searching AniList...</p> : null}
           {error ? <p className="command-state error-text">{error}</p> : null}
           {!loading && !error && query.trim().length < 2 ? <p className="command-state">Type at least two characters.</p> : null}
@@ -1333,9 +1321,6 @@ function CommandSearch({
                   <span>{titleFor(anime)}</span>
                   <small>{formatMeta(anime)}</small>
                 </button>
-                {Array.from({ length: Math.max(MIN_COMPARE_ANIME, selectedAnime.length + (selectedAnime.length < MAX_COMPARE_ANIME ? 1 : 0)) }).map((_, index) => (
-                  <button key={index} type="button" className="mini-assign" onClick={() => choose(anime, index)}>{index + 1}</button>
-                ))}
               </div>
             ))}
           </div>
@@ -1374,7 +1359,7 @@ function AnimeSlot({
       <span className="slot-number">{slot}</span>
       {anime ? <AnimeThumb anime={anime} /> : <span className="empty-thumb"><Plus size={20} /></span>}
       <span className="slot-copy">
-        <strong>{anime ? titleFor(anime) : `Choose anime ${slot}`}</strong>
+        <strong>{anime ? titleFor(anime) : 'Add anime'}</strong>
         <small>{anime ? formatMeta(anime) : 'Use the search bar'}</small>
       </span>
       {anime ? (
@@ -1448,13 +1433,13 @@ function ConnectionScore({
   graph,
   selectedAnime,
   loading,
-  canCompare,
+  canAnalyze,
 }: {
   comparison: CompareResponse | null
   graph: GraphResponse | null
   selectedAnime: AnimeSearchResult[]
   loading: boolean
-  canCompare: boolean
+  canAnalyze: boolean
 }) {
   const realScore = Math.round(comparison?.score ?? 0)
   const graphScore = visibleGraphScore(graph, selectedAnime)
@@ -1469,7 +1454,7 @@ function ConnectionScore({
         </span>
       </div>
       {loading ? (
-        <div className="loading-row"><Loader2 className="spin" size={18} /> Comparing creative DNA...</div>
+        <div className="loading-row"><Loader2 className="spin" size={18} /> Analyzing creative DNA...</div>
       ) : (
         <>
           {comparison ? (
@@ -1484,7 +1469,7 @@ function ConnectionScore({
               </div>
             </div>
           ) : null}
-          {!comparison ? <p>{canCompare ? 'Comparison will run automatically.' : 'Choose at least two anime to compare.'}</p> : null}
+          {!comparison ? <p>{canAnalyze ? 'Analysis will run automatically.' : 'Add at least one anime to begin analysis.'}</p> : null}
         </>
       )}
     </section>

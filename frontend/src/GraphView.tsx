@@ -475,11 +475,11 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
   }, [selectedEdgeId])
 
   if (!graph) {
-    return <div className="graph-empty">Choose at least two anime from search to build a creative graph.</div>
+    return <div className="graph-empty">Add at least one anime from search to build a creative graph.</div>
   }
 
   if (graph.nodes.length === 0) {
-    return <div className="graph-empty">No graph data is available for this pair under the active filters.</div>
+    return <div className="graph-empty">No graph data is available for this analysis under the active filters.</div>
   }
 
   return (

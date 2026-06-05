@@ -37,6 +37,23 @@ class GraphService:
         staff_limit: int | None = 40,
     ) -> CompareResponse:
         anime = [self._get_anime(session, anime_id) for anime_id in anime_ids]
+        if len(anime_ids) == 1:
+            return CompareResponse(
+                anime=[anime_to_detail(anime[0])],
+                sharedStaff=[],
+                sharedStudios=[],
+                sharedVoiceActors=[],
+                score=0,
+                scoreBreakdown=ScoreBreakdown(
+                    sharedStaff=0,
+                    sharedStudios=0,
+                    sharedVoiceActors=0,
+                    popularityBonus=0,
+                    pathBonus=0,
+                ),
+                shortestPath=[],
+            )
+
         allowed_staff_ids = self._allowed_staff_ids(session, staff_min_favourites, staff_limit)
         shared_staff = self._shared_staff(session, anime_ids, role_filters, allowed_staff_ids)
         shared_studios = self._shared_studios(session, anime_ids, role_filters)

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 NodeType = Literal["anime", "staff", "studio", "voiceActor"]
+MAX_ANALYSIS_ANIME = 6
 
 
 class AnimeSearchResult(BaseModel):
@@ -40,7 +41,7 @@ class RefreshResponse(BaseModel):
 
 
 class CompareRequest(BaseModel):
-    animeIds: list[int] = Field(min_length=2, max_length=6)
+    animeIds: list[int] = Field(min_length=1, max_length=MAX_ANALYSIS_ANIME)
     roleFilters: list[str] = Field(default_factory=list)
     staffMinFavourites: int = Field(default=0, ge=0)
     staffLimit: int | None = Field(default=40, ge=1, le=200)

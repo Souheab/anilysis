@@ -98,16 +98,6 @@ button {
   box-shadow: 0 22px 80px rgba(0, 0, 0, 0.56);
 }
 
-.slot-tabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  padding: 10px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
-}
-
-.slot-tabs button,
-.mini-assign,
 .result-main,
 .filter-row,
 .staff-row,
@@ -121,24 +111,6 @@ button {
   background: transparent;
   font: inherit;
   cursor: pointer;
-}
-
-.slot-tabs button {
-  min-width: 0;
-  height: 34px;
-  overflow: hidden;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 6px;
-  padding: 0 10px;
-  color: #94a3b8;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.slot-tabs button.active {
-  border-color: rgba(29, 155, 240, 0.75);
-  background: rgba(29, 155, 240, 0.18);
-  color: #e0f2fe;
 }
 
 .command-state {
@@ -158,7 +130,7 @@ button {
 
 .command-result {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) 36px 36px;
+  grid-template-columns: 42px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
@@ -191,18 +163,6 @@ button {
   margin-top: 3px;
   color: #94a3b8;
   font-size: 12px;
-}
-
-.mini-assign {
-  display: grid;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  border: 1px solid rgba(59, 130, 246, 0.5);
-  border-radius: 6px;
-  background: rgba(37, 99, 235, 0.22);
-  color: #dbeafe;
-  font-weight: 800;
 }
 
 .workspace {

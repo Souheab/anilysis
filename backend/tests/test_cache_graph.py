@@ -193,6 +193,38 @@ def test_compare_detects_connections_shared_by_all_selected_anime(session: Sessi
     assert result.sharedVoiceActors[0].charactersByAnime == {1: ["Hero"], 2: ["Rival"], 3: ["Guide"]}
 
 
+def test_single_anime_compare_returns_analysis_shell(session: Session):
+    seed_compare_data(session)
+
+    result = GraphService().compare(session, [1], [])
+
+    assert result.anime[0].id == 1
+    assert result.sharedStaff == []
+    assert result.sharedStudios == []
+    assert result.sharedVoiceActors == []
+    assert result.score == 0
+    assert result.scoreBreakdown.model_dump() == {
+        "sharedStaff": 0,
+        "sharedStudios": 0,
+        "sharedVoiceActors": 0,
+        "popularityBonus": 0,
+        "pathBonus": 0,
+    }
+    assert result.shortestPath == []
+
+
+def test_single_anime_graph_returns_selected_anime_neighborhood(session: Session):
+    seed_compare_data(session)
+
+    graph = GraphService().cytoscape_graph(session, [1], [], max_depth=1)
+
+    node_ids = {node.data["id"] for node in graph.nodes}
+    assert "anime:1" in node_ids
+    assert {"staff:100", "studio:300", "voice_actor:400"} <= node_ids
+    assert graph.highlightedPath == []
+    assert all(edge.classes == "" for edge in graph.edges)
+
+
 def test_role_filters_limit_shared_staff_and_graph(session: Session):
     seed_compare_data(session)
 
