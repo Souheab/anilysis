@@ -72,6 +72,7 @@ const VOICE_ACTOR_NODE_TYPES = { ...DEFAULT_NODE_TYPES, staff: false }
 const DEFAULT_SHOW_ONLY_MAIN_STUDIO_EDGES = true
 const DEFAULT_EDGE_FILTER_REGEX = ''
 const DEFAULT_WHEEL_SENSITIVITY = 0.16
+const DEFAULT_GRAPH_SPACING = 1.35
 const DEFAULT_GRAPH_LAYOUT: GraphLayout = 'fcose'
 const GRAPH_LAYOUT_OPTIONS: { label: string; value: GraphLayout }[] = [
   { label: 'fCoSE', value: 'fcose' },
@@ -80,6 +81,8 @@ const GRAPH_LAYOUT_OPTIONS: { label: string; value: GraphLayout }[] = [
 ]
 const MIN_WHEEL_SENSITIVITY = 0.04
 const MAX_WHEEL_SENSITIVITY = 1
+const MIN_GRAPH_SPACING = 0.8
+const MAX_GRAPH_SPACING = 2.2
 const STAFF_LIMIT_OPTIONS = [
   { label: 'Top 10', value: 10 },
   { label: 'Top 20', value: 20 },
@@ -209,6 +212,10 @@ function clampWheelSensitivity(value: number) {
   return Math.min(MAX_WHEEL_SENSITIVITY, Math.max(MIN_WHEEL_SENSITIVITY, value))
 }
 
+function clampGraphSpacing(value: number) {
+  return Math.min(MAX_GRAPH_SPACING, Math.max(MIN_GRAPH_SPACING, value))
+}
+
 function initialWheelSensitivity() {
   if (typeof window === 'undefined') {
     return DEFAULT_WHEEL_SENSITIVITY
@@ -244,6 +251,24 @@ function initialGraphLayout() {
     return isGraphLayout(parsed.graphLayout) ? parsed.graphLayout : DEFAULT_GRAPH_LAYOUT
   } catch {
     return DEFAULT_GRAPH_LAYOUT
+  }
+}
+
+function initialGraphSpacing() {
+  if (typeof window === 'undefined') {
+    return DEFAULT_GRAPH_SPACING
+  }
+  try {
+    const saved = window.localStorage.getItem(SETTINGS_STORAGE_KEY)
+    if (!saved) {
+      return DEFAULT_GRAPH_SPACING
+    }
+    const parsed = JSON.parse(saved) as Partial<Record<string, unknown>>
+    return typeof parsed.graphSpacing === 'number'
+      ? clampGraphSpacing(parsed.graphSpacing)
+      : DEFAULT_GRAPH_SPACING
+  } catch {
+    return DEFAULT_GRAPH_SPACING
   }
 }
 
@@ -620,6 +645,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [wheelSensitivity, setWheelSensitivity] = useState(initialWheelSensitivity)
   const [graphLayout, setGraphLayout] = useState<GraphLayout>(initialGraphLayout)
+  const [graphSpacing, setGraphSpacing] = useState(initialGraphSpacing)
   const [filterSections, setFilterSections] = useState<FilterSectionState>(initialFilterSections)
   const [recentComparisons, setRecentComparisons] = useState<RecentComparison[]>(initialRecentComparisons)
   const [recentComparisonsOpen, setRecentComparisonsOpen] = useState(false)
@@ -678,8 +704,8 @@ function App() {
   }, [recentComparisons])
 
   useEffect(() => {
-    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ graphLayout, wheelSensitivity }))
-  }, [graphLayout, wheelSensitivity])
+    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ graphLayout, graphSpacing, wheelSensitivity }))
+  }, [graphLayout, graphSpacing, wheelSensitivity])
 
   useEffect(() => {
     if (!selectedNodeId || !displayGraph) {
@@ -1005,6 +1031,7 @@ function App() {
             ref={graphRef}
             graph={displayGraph}
             graphLayout={graphLayout}
+            graphSpacing={graphSpacing}
             showEdgeLabels={showEdgeLabels}
             wheelSensitivity={wheelSensitivity}
             selectedNodeId={selectedNodeId}
@@ -1068,8 +1095,10 @@ function App() {
       <SettingsModal
         open={settingsOpen}
         graphLayout={graphLayout}
+        graphSpacing={graphSpacing}
         wheelSensitivity={wheelSensitivity}
         onGraphLayoutChange={setGraphLayout}
+        onGraphSpacingChange={setGraphSpacing}
         onWheelSensitivityChange={setWheelSensitivity}
         onClose={() => setSettingsOpen(false)}
       />
@@ -1080,15 +1109,19 @@ function App() {
 function SettingsModal({
   open,
   graphLayout,
+  graphSpacing,
   wheelSensitivity,
   onGraphLayoutChange,
+  onGraphSpacingChange,
   onWheelSensitivityChange,
   onClose,
 }: {
   open: boolean
   graphLayout: GraphLayout
+  graphSpacing: number
   wheelSensitivity: number
   onGraphLayoutChange: (value: GraphLayout) => void
+  onGraphSpacingChange: (value: number) => void
   onWheelSensitivityChange: (value: number) => void
   onClose: () => void
 }) {
@@ -1149,6 +1182,20 @@ function SettingsModal({
               </option>
             ))}
           </select>
+        </label>
+        <label className="settings-slider">
+          <span>
+            <strong>Graph spacing</strong>
+            <small>{graphSpacing.toFixed(2)}x</small>
+          </span>
+          <input
+            type="range"
+            min={MIN_GRAPH_SPACING}
+            max={MAX_GRAPH_SPACING}
+            step="0.05"
+            value={graphSpacing}
+            onChange={(event) => onGraphSpacingChange(clampGraphSpacing(Number(event.target.value)))}
+          />
         </label>
       </section>
     </div>

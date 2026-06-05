@@ -20,6 +20,7 @@ export interface GraphViewHandle {
 interface GraphViewProps {
   graph: GraphResponse | null
   graphLayout: GraphLayout
+  graphSpacing: number
   showEdgeLabels: boolean
   wheelSensitivity: number
   selectedNodeId: string | null
@@ -50,12 +51,54 @@ const VOICE_ACTOR_ICON = `data:image/svg+xml;utf8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><g fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 13a5 5 0 0 1 10 0v8a5 5 0 0 1-10 0z"/><path d="M13 21c0 6 4 10 11 10s11-4 11-10"/><path d="M24 31v6"/><path d="M18 37h12"/></g></svg>',
 )}`
 
-function graphLayoutOptions(name: GraphLayout): LayoutOptions {
-  return { name, animate: false, fit: true, padding: 80 } as LayoutOptions
+function graphLayoutOptions(name: GraphLayout, spacing: number): LayoutOptions {
+  const spacingFactor = Math.max(0.8, spacing)
+  const baseOptions = { name, animate: false, fit: true, padding: 96 }
+
+  if (name === 'fcose') {
+    return {
+      ...baseOptions,
+      quality: 'proof',
+      randomize: true,
+      nodeDimensionsIncludeLabels: true,
+      nodeSeparation: 110 * spacingFactor,
+      idealEdgeLength: 150 * spacingFactor,
+      edgeElasticity: 0.28,
+      nodeRepulsion: 7600 * spacingFactor * spacingFactor,
+      gravity: 0.18 / spacingFactor,
+      gravityRangeCompound: 1.8,
+      gravityCompound: 0.7,
+      numIter: 3400,
+      tile: true,
+      tilingPaddingVertical: 34 * spacingFactor,
+      tilingPaddingHorizontal: 34 * spacingFactor,
+    } as unknown as LayoutOptions
+  }
+
+  if (name === 'cola') {
+    return {
+      ...baseOptions,
+      avoidOverlap: true,
+      nodeDimensionsIncludeLabels: true,
+      nodeSpacing: () => 42 * spacingFactor,
+      edgeLength: 170 * spacingFactor,
+      unconstrIter: 28,
+      userConstIter: 28,
+      allConstIter: 45,
+    } as unknown as LayoutOptions
+  }
+
+  return {
+    ...baseOptions,
+    directed: false,
+    avoidOverlap: true,
+    nodeDimensionsIncludeLabels: true,
+    spacingFactor: 1.28 * spacingFactor,
+  } as unknown as LayoutOptions
 }
 
 export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function GraphView(
-  { graph, graphLayout, showEdgeLabels, wheelSensitivity, selectedNodeId, selectedEdgeId, onNodeSelect, onEdgeSelect },
+  { graph, graphLayout, graphSpacing, showEdgeLabels, wheelSensitivity, selectedNodeId, selectedEdgeId, onNodeSelect, onEdgeSelect },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -100,9 +143,9 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
     reset: () => {
       const cy = cyRef.current
       if (!cy) return
-      cy.layout(graphLayoutOptions(graphLayout)).run()
+      cy.layout(graphLayoutOptions(graphLayout, graphSpacing)).run()
     },
-  }), [graphLayout])
+  }), [graphLayout, graphSpacing])
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -278,7 +321,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
           },
         },
       ],
-      layout: graphLayoutOptions(graphLayout),
+      layout: graphLayoutOptions(graphLayout, graphSpacing),
     })
 
     const updateMiniMap = () => {
@@ -314,7 +357,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       selectionStartRef.current = null
       setSelectionBox(null)
     }
-  }, [elements, graph, graphLayout, onEdgeSelect, onNodeSelect, showEdgeLabels, wheelSensitivity])
+  }, [elements, graph, graphLayout, graphSpacing, onEdgeSelect, onNodeSelect, showEdgeLabels, wheelSensitivity])
 
   useEffect(() => {
     const container = containerRef.current
