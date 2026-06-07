@@ -669,6 +669,7 @@ function App() {
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
   const [isComparing, setIsComparing] = useState(false)
   const [isLoadingNode, setIsLoadingNode] = useState(false)
+  const [analysisFailed, setAnalysisFailed] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const effectiveActiveFilters = roleFiltersEnabled ? activeFilters : ALL_ROLE_IDS
@@ -754,9 +755,9 @@ function App() {
     }
   }, [displayGraph, selectedEdgeId])
 
-  useEffect(() => {
+  const runAnalysis = useCallback(() => {
     if (selectedAnime.length < MIN_ANALYSIS_ANIME) {
-      return
+      return undefined
     }
     const animeIds = selectedAnime.map((anime) => anime.id)
 
@@ -764,6 +765,7 @@ function App() {
     window.queueMicrotask(() => {
       if (!cancelled) {
         setIsComparing(true)
+        setAnalysisFailed(false)
         setError(null)
       }
     })
@@ -778,10 +780,12 @@ function App() {
         setNodeDetail(null)
         setSelectedNodeId(null)
         setSelectedEdgeId(null)
+        setAnalysisFailed(false)
         setRecentComparisons((current) => addRecentComparison(current, selectedAnime))
       })
       .catch((requestError) => {
         if (cancelled) return
+        setAnalysisFailed(true)
         setError(requestError instanceof Error ? requestError.message : 'Comparison failed')
       })
       .finally(() => {
@@ -795,12 +799,15 @@ function App() {
     }
   }, [popularityFilters, selectedAnime])
 
+  useEffect(() => runAnalysis(), [runAnalysis])
+
   const clearComparisonState = useCallback(() => {
     setComparison(null)
     setGraph(null)
     setNodeDetail(null)
     setSelectedNodeId(null)
     setSelectedEdgeId(null)
+    setAnalysisFailed(false)
   }, [])
 
   const assignAnime = useCallback(
@@ -969,6 +976,21 @@ function App() {
     setIsLoadingNode(false)
   }, [])
 
+  const analysisButtonIcon = isComparing ? (
+    <Loader2 className="spin" size={17} />
+  ) : analysisFailed || comparison || graph ? (
+    <RotateCcw size={17} />
+  ) : (
+    <Network size={17} />
+  )
+  const analysisButtonText = isComparing
+    ? 'Analyzing...'
+    : analysisFailed
+      ? 'Retry analysis'
+      : comparison || graph
+        ? 'Rerun analysis'
+        : 'Run analysis'
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -1009,7 +1031,24 @@ function App() {
             ))}
           </div>
 
-          {error ? <div className="inline-error">{error}</div> : null}
+          <button
+            type="button"
+            className="analysis-button"
+            disabled={!canAnalyze || isComparing}
+            onClick={() => {
+              void runAnalysis()
+            }}
+          >
+            {analysisButtonIcon}
+            {analysisButtonText}
+          </button>
+
+          {error ? (
+            <div className="inline-error">
+              <strong>Error occurred:</strong>
+              <span>{error}</span>
+            </div>
+          ) : null}
 
           <RecentComparisons
             items={recentComparisons}
