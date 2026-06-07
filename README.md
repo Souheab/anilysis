@@ -40,6 +40,16 @@ The app will be available at:
 
 You can override the default ports with `FRONTEND_PORT` and `BACKEND_PORT`.
 
+## Build Desktop App
+
+From the repository root:
+
+```bash
+./scripts/build_desktop.sh
+```
+
+This builds the Electron desktop frontend/backend and creates a Linux AppImage in `desktop/release/`.
+
 ## Notes
 
 The backend initializes its local database on startup and uses cached anime data to avoid repeated external requests where possible.
