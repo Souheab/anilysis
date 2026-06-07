@@ -1,0 +1,51 @@
+{
+  "name": "anime-six-degrees-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop app packaging for Six Degrees of Anime",
+  "desktopName": "anime-six-degrees",
+  "main": "main.cjs",
+  "author": "",
+  "license": "GPL-3.0-only",
+  "scripts": {
+    "build:frontend": "rm -rf dist/frontend && cd ../frontend && VITE_API_BASE_URL= npm run build && cd ../desktop && mkdir -p dist && cp -R ../frontend/dist dist/frontend",
+    "build:backend": "python3 -m venv .venv && .venv/bin/python -m pip install --upgrade pip && .venv/bin/python -m pip install -r requirements.txt && rm -rf dist/backend build/pyinstaller && .venv/bin/pyinstaller backend_launcher.spec --noconfirm --distpath dist/backend --workpath build/pyinstaller",
+    "build": "npm run build:frontend && npm run build:backend",
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist:linux": "electron-builder --linux"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.animesixdegrees.app",
+    "productName": "Six Degrees of Anime",
+    "icon": "../frontend/public/favicon.svg",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "dist/frontend",
+        "to": "frontend"
+      },
+      {
+        "from": "dist/backend",
+        "to": "backend"
+      }
+    ],
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility",
+      "syncDesktopName": true
+    }
+  }
+}
