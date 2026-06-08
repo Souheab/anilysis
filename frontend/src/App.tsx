@@ -2137,18 +2137,22 @@ function RoleFilters({
       ) : null}
 
       <section className="misc-section" aria-labelledby="misc-options-title">
-        <div className="filter-section-title compact">
+        <div className="filter-section-title">
           <h3 id="misc-options-title">Miscellaneous Options</h3>
         </div>
-        <div className="filter-list">
-          <button type="button" className="filter-row graph-setting-row" onClick={() => onHighlightAllPathsChange(!highlightAllPaths)}>
-            <Focus size={14} />
-            <span>
-              <strong>Highlight all paths</strong>
-              <em>Highlight every visible connection instead of only the shortest path</em>
-            </span>
-            <span className={`switch ${highlightAllPaths ? 'on' : ''}`} aria-hidden="true" />
-          </button>
+        <div className="filter-card misc-options-card open">
+          <div className="filter-card-body">
+            <div className="filter-list">
+              <button type="button" className="filter-row graph-setting-row" onClick={() => onHighlightAllPathsChange(!highlightAllPaths)}>
+                <Focus size={14} />
+                <span>
+                  <strong>Highlight all paths</strong>
+                  <em>Highlight every visible connection instead of only the shortest path</em>
+                </span>
+                <span className={`switch ${highlightAllPaths ? 'on' : ''}`} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
         </div>
       </section>
     </section>

@@ -1168,10 +1168,6 @@ button {
   font-size: 18px;
 }
 
-.filter-section-title.compact h3 {
-  font-size: 15px;
-}
-
 .filter-reset,
 .filter-section-toggle,
 .filter-card-title,
@@ -1240,6 +1236,11 @@ button {
   margin-top: 8px;
   border-top: 1px solid rgba(148, 163, 184, 0.16);
   padding-top: 16px;
+}
+
+.misc-options-card .filter-card-body {
+  border-top: 0;
+  padding: 8px 12px;
 }
 
 .filter-card {
