@@ -40,6 +40,16 @@ The app will be available at:
 
 You can override the default ports with `FRONTEND_PORT` and `BACKEND_PORT`.
 
+## Run With Docker
+
+From the repository root:
+
+```bash
+docker compose up --build
+```
+
+The app will be available at `http://localhost:8080`.
+
 ## Build Desktop App
 
 From the repository root:

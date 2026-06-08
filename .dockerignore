@@ -1,0 +1,11 @@
+.git
+.devcontainer
+**/.pytest_cache
+**/.venv
+**/__pycache__
+**/node_modules
+backend/data/*.db-journal
+desktop/release
+frontend/dist
+Dockerfile
+docker-compose.yml
