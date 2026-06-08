@@ -370,8 +370,22 @@ button {
 .anime-thumb.fallback {
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, rgba(29, 155, 240, 0.48), rgba(255, 122, 0, 0.42));
   color: #e0f2fe;
+}
+
+.empty-thumb {
+  border: 1px solid rgba(29, 155, 240, 0.46);
+  background: rgba(15, 31, 49, 0.68);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.08);
+  color: #dbeafe;
+}
+
+.empty-thumb svg {
+  stroke-width: 2;
+}
+
+.anime-thumb.fallback {
+  background: rgba(15, 31, 49, 0.68);
 }
 
 .command-result .anime-thumb,
