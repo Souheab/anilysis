@@ -1,6 +1,6 @@
 # Six Degrees of Anime Desktop
 
-Electron packaging for running Six Degrees of Anime as a Linux desktop app with the React frontend and FastAPI backend bundled together.
+Electron packaging for running Six Degrees of Anime as a desktop app with the React frontend and FastAPI backend bundled together.
 
 ## Requirements
 
@@ -36,7 +36,7 @@ The app stores its desktop cache database in Electron's per-user app data direct
 
 ## Package
 
-Create an unpacked Linux app for smoke testing:
+Create an unpacked app for the current platform for smoke testing:
 
 ```bash
 npm run pack
@@ -48,5 +48,12 @@ Create the Linux distributable:
 npm run dist:linux
 ```
 
-Build output is written to `desktop/release/`.
+Create the Windows installer and portable executable from Windows:
 
+```powershell
+npm run dist:win
+```
+
+PyInstaller builds the bundled backend executable for the host operating system, so the Windows package must be built on Windows. The Windows build emits an NSIS installer and a portable executable.
+
+Build output is written to `desktop/release/`.

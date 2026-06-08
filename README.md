@@ -50,6 +50,14 @@ From the repository root:
 
 This builds the Electron desktop frontend/backend and creates a Linux AppImage in `desktop/release/`.
 
+To build the Windows desktop app, run this from Windows:
+
+```bash
+./scripts/build_desktop.sh win
+```
+
+The Windows build creates an NSIS installer and a portable executable in `desktop/release/`.
+
 ## Notes
 
 The backend initializes its local database on startup and uses cached anime data to avoid repeated external requests where possible.
