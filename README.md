@@ -50,6 +50,13 @@ docker compose up --build
 
 The app will be available at `http://localhost:8080`.
 
+By default, the Docker container only prints the localhost URL. To include
+server logs while it runs:
+
+```bash
+VERBOSE_LOGS=1 docker compose up --build
+```
+
 ## Build Desktop App
 
 From the repository root:
@@ -67,7 +74,3 @@ To build the Windows desktop app, run this from Windows:
 ```
 
 The Windows build creates an NSIS installer and a portable executable in `desktop/release/`.
-
-## Notes
-
-The backend initializes its local database on startup and uses cached anime data to avoid repeated external requests where possible.
