@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import exp
 
 
 ROLE_CATEGORY_LABELS = {
@@ -35,6 +36,8 @@ ROLE_KEYWORDS: tuple[tuple[str, str, float], ...] = (
     ("producer", "production", 2.2),
     ("production", "production", 1.8),
 )
+
+SCORE_CURVE_SCALE = 140.0
 
 
 @dataclass(frozen=True)
@@ -78,3 +81,9 @@ def path_bonus(path_node_count: int) -> float:
     if path_node_count <= 3:
         return 10.0
     return max(0.0, 8.0 - (path_node_count - 3) * 1.5)
+
+
+def connection_score_from_points(points: float) -> float:
+    if points <= 0:
+        return 0.0
+    return min(100.0, 100.0 * (1.0 - exp(-points / SCORE_CURVE_SCALE)))

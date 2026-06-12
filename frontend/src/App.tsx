@@ -40,6 +40,7 @@ import {
   type CompareResponse,
   type GraphResponse,
   type NodeDetail,
+  type ScoreBreakdown,
   type SharedStaff,
   type SharedVoiceActor,
 } from './api'
@@ -76,6 +77,7 @@ const DEFAULT_EDGE_FILTER_REGEX = ''
 const DEFAULT_WHEEL_SENSITIVITY = 0.16
 const DEFAULT_GRAPH_SPACING = 1.35
 const DEFAULT_GRAPH_LAYOUT: GraphLayout = 'fcose'
+const SCORE_CURVE_SCALE = 140
 const GRAPH_LAYOUT_OPTIONS: { label: string; value: GraphLayout }[] = [
   { label: 'fCoSE', value: 'fcose' },
   { label: 'Cola', value: 'cola' },
@@ -570,6 +572,27 @@ function numericDataValue(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
 }
 
+function connectionScoreFromPoints(points: number) {
+  if (points <= 0) {
+    return 0
+  }
+  return Math.min(100, 100 * (1 - Math.exp(-points / SCORE_CURVE_SCALE)))
+}
+
+function formatScoreValue(value: number) {
+  return value.toLocaleString(undefined, { maximumFractionDigits: 1 })
+}
+
+function scoreBreakdownItems(breakdown: ScoreBreakdown) {
+  return [
+    { label: 'Shared Staff', value: breakdown.sharedStaff },
+    { label: 'Shared Studios', value: breakdown.sharedStudios },
+    { label: 'Voice Actors', value: breakdown.sharedVoiceActors },
+    { label: 'Popularity', value: breakdown.popularityBonus },
+    { label: 'Shortest Path', value: breakdown.pathBonus },
+  ]
+}
+
 function visibleGraphScore(
   graph: GraphResponse | null,
   selectedAnime: AnimeSearchResult[],
@@ -630,7 +653,7 @@ function visibleGraphScore(
     }
   }
 
-  return Math.min(100, staffPoints + studioPoints + voiceActorPoints + popularityPoints)
+  return connectionScoreFromPoints(staffPoints + studioPoints + voiceActorPoints + popularityPoints)
 }
 
 function App() {
@@ -1482,6 +1505,9 @@ function ConnectionScore({
 }) {
   const realScore = Math.round(comparison?.score ?? 0)
   const graphScore = visibleGraphScore(graph, selectedAnime)
+  const breakdownItems = comparison ? scoreBreakdownItems(comparison.scoreBreakdown) : []
+  const rawScoreTotal = breakdownItems.reduce((total, item) => total + item.value, 0)
+  const maxBreakdownValue = Math.max(1, ...breakdownItems.map((item) => item.value))
   const tooltipText = 'Real score uses the full comparison result. Visible graph score is recalculated from the graph currently on screen after filters.'
   return (
     <section className="score-card">
@@ -1506,6 +1532,27 @@ function ConnectionScore({
                 <span>Visible Graph Score</span>
                 <strong>{graphScore === null ? '--' : `${Math.round(graphScore)}%`}</strong>
               </div>
+              <details className="score-breakdown">
+                <summary>
+                  <span>Points Breakdown</span>
+                  <ChevronDown size={15} aria-hidden="true" />
+                </summary>
+                <div className="score-breakdown-body" aria-label="Score breakdown">
+                  {breakdownItems.map((item) => (
+                    <div className="score-breakdown-row" key={item.label}>
+                      <span>{item.label}</span>
+                      <div className="score-breakdown-meter" aria-hidden="true">
+                        <span style={{ width: `${Math.max(2, (item.value / maxBreakdownValue) * 100)}%` }} />
+                      </div>
+                      <strong>{formatScoreValue(item.value)}</strong>
+                    </div>
+                  ))}
+                  <div className="score-breakdown-total">
+                    <span>Raw Points</span>
+                    <strong>{formatScoreValue(rawScoreTotal)}</strong>
+                  </div>
+                </div>
+              </details>
             </div>
           ) : null}
           {!comparison ? <p>{canAnalyze ? 'Analysis will run automatically.' : 'Add at least one anime to begin analysis.'}</p> : null}

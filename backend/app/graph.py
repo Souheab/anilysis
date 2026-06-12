@@ -24,7 +24,7 @@ from app.schemas import (
     SharedStudio,
     SharedVoiceActor,
 )
-from app.scoring import normalize_role_filters, path_bonus, popularity_multiplier, role_is_included, score_role
+from app.scoring import connection_score_from_points, normalize_role_filters, path_bonus, popularity_multiplier, role_is_included, score_role
 
 
 class GraphService:
@@ -61,7 +61,7 @@ class GraphService:
         graph = self._build_graph(session, role_filters, allowed_staff_ids, anime_ids=set(anime_ids))
         path = self._selected_shortest_path_nodes(graph, anime_ids)
         breakdown = self._score_breakdown(shared_staff, shared_studios, shared_voice_actors, len(path))
-        score = min(100.0, sum(breakdown.model_dump().values()))
+        score = connection_score_from_points(sum(breakdown.model_dump().values()))
         return CompareResponse(
             anime=[anime_to_detail(item) for item in anime],
             sharedStaff=shared_staff,

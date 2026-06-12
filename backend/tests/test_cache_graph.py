@@ -7,7 +7,7 @@ from sqlmodel import select
 from app.cache import AnimeCacheService
 from app.graph import GraphService
 from app.models import Anime, AnimeStaffRole, AnimeStudio, AnimeVoiceActorRole, Staff, Studio, VoiceActor, utc_now
-from app.scoring import score_role
+from app.scoring import connection_score_from_points, score_role
 
 
 class FakeAniListClient:
@@ -176,6 +176,7 @@ def test_compare_detects_shared_staff_studios_and_score(session: Session):
     assert set(result.sharedVoiceActors[0].charactersByAnime) == {1, 2}
     assert result.scoreBreakdown.sharedVoiceActors > 0
     assert result.score > 0
+    assert result.score == round(connection_score_from_points(sum(result.scoreBreakdown.model_dump().values())), 2)
     assert result.shortestPath[0].id == "anime:1"
     assert result.shortestPath[-1].id == "anime:2"
 
