@@ -26,11 +26,23 @@ function run(command, args, options = {}) {
   }
 }
 
-const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+function npmInvocation() {
+  if (process.env.npm_execpath && fs.existsSync(process.env.npm_execpath)) {
+    return { command: process.execPath, args: [process.env.npm_execpath] }
+  }
+
+  if (process.platform === 'win32') {
+    return { command: 'cmd.exe', args: ['/d', '/c', 'npm.cmd'] }
+  }
+
+  return { command: 'npm', args: [] }
+}
+
+const npm = npmInvocation()
 
 fs.rmSync(desktopFrontendDir, { force: true, recursive: true })
 
-run(npmCommand, ['--prefix', frontendDir, 'run', 'build'], {
+run(npm.command, [...npm.args, '--prefix', frontendDir, 'run', 'build'], {
   env: {
     ...process.env,
     VITE_API_BASE_URL: '',
