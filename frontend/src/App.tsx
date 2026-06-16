@@ -1367,7 +1367,7 @@ function CommandSearch({
               setOpen(false)
             }
           }}
-          placeholder="Search anime, staff, or studio..."
+          placeholder="Search anime..."
         />
       </div>
       {open ? (
