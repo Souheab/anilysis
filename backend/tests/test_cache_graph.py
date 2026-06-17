@@ -278,6 +278,30 @@ def test_cytoscape_graph_shortens_staff_edges_with_full_roles(session: Session):
     assert set(edge.data["roles"]) == {"Director", "Script", "Storyboard", "Key Animation"}
 
 
+def test_cytoscape_graph_prefers_director_over_animation_director_label(session: Session):
+    seed_compare_data(session)
+    session.add(Staff(id=103, name_full="Role Order Staff", favourites=500))
+    for role in ["Animation Director", "Director", "Script", "Storyboard"]:
+        role_score = score_role(role)
+        session.add(
+            AnimeStaffRole(
+                anime_id=1,
+                staff_id=103,
+                role=role,
+                role_category=role_score.category,
+                weight=role_score.weight,
+            )
+        )
+    session.commit()
+
+    graph = GraphService().cytoscape_graph(session, [1], [], max_depth=1)
+    edge = next(edge for edge in graph.edges if edge.data["source"] == "anime:1" and edge.data["target"] == "staff:103")
+
+    assert edge.data["label"] == "Director +3"
+    assert edge.data["roles"][0] == "Director"
+    assert "Animation Director" in edge.data["roles"]
+
+
 def test_cytoscape_graph_does_not_shorten_voice_actor_edges(session: Session):
     seed_compare_data(session)
     session.add(AnimeVoiceActorRole(anime_id=1, voice_actor_id=400, character_name="Mentor", weight=3.0))

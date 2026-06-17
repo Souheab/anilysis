@@ -18,6 +18,9 @@ ROLE_CATEGORY_LABELS = {
 
 ROLE_KEYWORDS: tuple[tuple[str, str, float], ...] = (
     ("chief director", "direction", 5.0),
+    ("animation director", "animation", 3.2),
+    ("sound director", "music", 3.0),
+    ("art director", "design", 3.2),
     ("director", "direction", 4.8),
     ("original creator", "writing", 4.6),
     ("series composition", "writing", 4.3),
@@ -26,12 +29,9 @@ ROLE_KEYWORDS: tuple[tuple[str, str, float], ...] = (
     ("storyboard", "direction", 3.2),
     ("character design", "design", 3.7),
     ("mechanical design", "design", 3.2),
-    ("art director", "design", 3.2),
     ("color design", "design", 2.6),
     ("music", "music", 3.5),
     ("composer", "music", 3.5),
-    ("sound director", "music", 3.0),
-    ("animation director", "animation", 3.2),
     ("key animation", "animation", 2.4),
     ("producer", "production", 2.2),
     ("production", "production", 1.8),

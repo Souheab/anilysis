@@ -271,13 +271,13 @@ class GraphService:
             distance = max(0.2, 6.0 - rel.weight)
             if graph.has_edge(anime_node, staff_node):
                 edge = graph.edges[anime_node, staff_node]
-                edge["roles"] = self._append_unique(edge["roles"], rel.role)
+                edge["roles"] = self._rank_staff_roles(self._append_unique(edge["roles"], rel.role))
                 edge["roleCategories"] = self._append_unique(edge["roleCategories"], rel.role_category)
                 edge["label"] = self._staff_edge_label(edge["roles"])
                 edge["weight"] = max(edge["weight"], rel.weight)
                 edge["distance"] = min(edge["distance"], distance)
             else:
-                roles = [rel.role]
+                roles = self._rank_staff_roles([rel.role])
                 graph.add_edge(
                     anime_node,
                     staff_node,
