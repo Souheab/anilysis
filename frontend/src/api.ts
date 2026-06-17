@@ -171,8 +171,8 @@ export function fetchPopularStaff(kind = 'Director', limit = 50, signal?: AbortS
   return request<PopularStaff[]>(`/api/staff/popular?${params.toString()}`, { signal })
 }
 
-export function fetchStaffDirectedAnime(staffId: number, limit = 12, signal?: AbortSignal) {
-  const params = new URLSearchParams({ limit: String(limit) })
+export function fetchStaffDirectedAnime(staffId: number, role = 'Director', limit = 12, signal?: AbortSignal) {
+  const params = new URLSearchParams({ role, limit: String(limit) })
   return request<PopularStaffAnime[]>(`/api/staff/${staffId}/directed-anime?${params.toString()}`, { signal })
 }
 

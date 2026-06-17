@@ -75,7 +75,40 @@ const RECENT_COMPARISON_LIMIT = 10
 const MIN_ANALYSIS_ANIME = 1
 const MAX_COMPARE_ANIME = 6
 const POPULAR_STAFF_LIMIT = 50
-const POPULAR_STAFF_KINDS = ['Director'] as const
+const POPULAR_STAFF_KINDS = [
+  {
+    value: 'All Staff',
+    label: 'All Staff',
+    pluralLabel: 'All Staff',
+    role: '',
+    description: 'Top AniList staff sorted by favorites across every listed occupation.',
+    detailEmpty: 'No anime credits found from AniList staff roles.',
+  },
+  {
+    value: 'Director',
+    label: 'Director',
+    pluralLabel: 'Directors',
+    role: 'Director',
+    description: 'Top AniList staff filtered to director occupations.',
+    detailEmpty: 'No directed anime found from AniList staff roles.',
+  },
+  {
+    value: 'Voice Actor',
+    label: 'Voice Actor',
+    pluralLabel: 'Voice Actors',
+    role: 'Voice Actor',
+    description: 'Top AniList staff filtered to voice actor occupations.',
+    detailEmpty: 'No voice acting anime credits found from AniList staff roles.',
+  },
+  {
+    value: 'Composer',
+    label: 'Composer',
+    pluralLabel: 'Composers',
+    role: 'Music',
+    description: 'Top AniList staff filtered to composer and music occupations.',
+    detailEmpty: 'No music anime credits found from AniList staff roles.',
+  },
+] as const
 const ALL_ROLE_IDS = ROLE_FILTERS.map((filter) => filter.id)
 const DEFAULT_NODE_TYPES = { anime: true, staff: true, voiceActor: true, studio: true }
 const VOICE_ACTOR_NODE_TYPES = { ...DEFAULT_NODE_TYPES, staff: false }
@@ -113,7 +146,7 @@ type FilterSectionId = 'roles' | 'nodes' | 'edges' | 'favourites' | 'graph'
 type FilterSectionState = Record<FilterSectionId, boolean>
 type ResizePanel = 'left' | 'right'
 type AnalysisToolId = 'relationships' | 'comparator' | 'popularStaff'
-type PopularStaffKind = (typeof POPULAR_STAFF_KINDS)[number]
+type PopularStaffKind = (typeof POPULAR_STAFF_KINDS)[number]['value']
 type AnalysisToolDefinition = {
   id: AnalysisToolId
   label: string
@@ -189,6 +222,10 @@ function primaryCharacter(actor: SharedVoiceActor) {
 
 function staffOccupations(staff: PopularStaff | null) {
   return staff?.primaryOccupations?.length ? staff.primaryOccupations.join(' / ') : 'Staff'
+}
+
+function popularStaffKindOption(kind: PopularStaffKind) {
+  return POPULAR_STAFF_KINDS.find((option) => option.value === kind) ?? POPULAR_STAFF_KINDS[0]
 }
 
 function nodeTypeLabel(type: NodeDetail['type']) {
@@ -909,17 +946,17 @@ function App() {
     setPopularStaffAnime([])
     setPopularStaffAnimeLoading(true)
     setPopularStaffAnimeError(null)
-    void fetchStaffDirectedAnime(selectedPopularStaff.id, 12, controller.signal)
+    void fetchStaffDirectedAnime(selectedPopularStaff.id, popularStaffKindOption(popularStaffKind).role, 12, controller.signal)
       .then(setPopularStaffAnime)
       .catch((requestError) => {
         if (controller.signal.aborted) return
-        setPopularStaffAnimeError(requestError instanceof Error ? requestError.message : 'Could not load directed anime')
+        setPopularStaffAnimeError(requestError instanceof Error ? requestError.message : 'Could not load anime credits')
       })
       .finally(() => {
         if (!controller.signal.aborted) setPopularStaffAnimeLoading(false)
       })
     return () => controller.abort()
-  }, [isPopularStaffTool, selectedPopularStaff])
+  }, [isPopularStaffTool, popularStaffKind, selectedPopularStaff])
 
   useEffect(() => {
     if (!selectedNodeId || !displayGraph) {
@@ -1458,19 +1495,20 @@ function PopularStaffPreview({
   onKindChange: (kind: PopularStaffKind) => void
   onSelect: (staff: PopularStaff) => void
 }) {
+  const selectedKind = popularStaffKindOption(kind)
   return (
     <section className="graph-panel popular-staff-panel">
       <div className="popular-staff-header">
         <span className="filter-icon blue"><Users size={18} /></span>
         <div>
-          <h2>Popular {kind}s</h2>
-          <p>Top {POPULAR_STAFF_LIMIT} AniList staff sorted by favorites and filtered to {kind.toLowerCase()} occupations.</p>
+          <h2>Popular {selectedKind.pluralLabel}</h2>
+          <p>{selectedKind.description}</p>
         </div>
         <label className="staff-kind-control compact">
           <span>Staff kind</span>
           <select value={kind} onChange={(event) => onKindChange(event.target.value as PopularStaffKind)}>
             {POPULAR_STAFF_KINDS.map((option) => (
-              <option key={option} value={option}>{option}</option>
+              <option key={option.value} value={option.value}>{option.label}</option>
             ))}
           </select>
         </label>
@@ -1478,7 +1516,7 @@ function PopularStaffPreview({
       {loading ? <div className="popular-staff-state"><Loader2 className="spin" size={20} /> Loading AniList staff...</div> : null}
       {!loading && error ? <div className="popular-staff-state error-text">{error}</div> : null}
       {!loading && !error ? (
-        <div className="popular-staff-list" aria-label={`Top ${POPULAR_STAFF_LIMIT} popular ${kind}s`}>
+        <div className="popular-staff-list" aria-label={`Top ${POPULAR_STAFF_LIMIT} popular ${selectedKind.pluralLabel}`}>
           {items.map((staff, index) => (
             <button
               key={staff.id}
@@ -1516,20 +1554,21 @@ function PopularStaffDetails({
   animeError: string | null
   onClose: () => void
 }) {
+  const selectedKind = popularStaffKindOption(kind)
   return (
     <section className="detail-section popular-staff-detail">
       <div className="panel-header">
         <h2>Staff Details</h2>
         {staff ? <button type="button" className="icon-close" aria-label="Close staff details" onClick={onClose}><X size={18} /></button> : null}
       </div>
-      {!staff ? <div className="detail-empty">Select a {kind.toLowerCase()} to inspect their AniList profile signal.</div> : null}
+      {!staff ? <div className="detail-empty">Select a {selectedKind.label.toLowerCase()} to inspect their AniList profile signal.</div> : null}
       {staff ? (
         <div className="detail-content">
           <div className="node-identity">
             {staff.imageUrl ? <img src={staff.imageUrl} alt="" /> : <span className="node-avatar staff"><Users size={22} /></span>}
             <span>
               <h3>{staff.nameFull}</h3>
-              <small>{kind}</small>
+              <small>{selectedKind.label}</small>
             </span>
           </div>
           {staff.nameNative ? (
@@ -1549,8 +1588,8 @@ function PopularStaffDetails({
             </div>
           </div>
           <div>
-            <h4>Directed Anime</h4>
-            {loadingAnime ? <div className="loading-row"><Loader2 className="spin" size={16} /> Loading directed anime...</div> : null}
+            <h4>Anime Credits</h4>
+            {loadingAnime ? <div className="loading-row"><Loader2 className="spin" size={16} /> Loading anime credits...</div> : null}
             {!loadingAnime && animeError ? <p className="error-text">{animeError}</p> : null}
             {!loadingAnime && !animeError ? (
               <div className="directed-anime-list">
@@ -1564,7 +1603,7 @@ function PopularStaffDetails({
                     <small>{anime.roles.slice(0, 2).join(', ')}</small>
                   </div>
                 ))}
-                {directedAnime.length === 0 ? <p className="muted">No directed anime found from AniList staff roles.</p> : null}
+                {directedAnime.length === 0 ? <p className="muted">{selectedKind.detailEmpty}</p> : null}
               </div>
             ) : null}
           </div>

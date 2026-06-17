@@ -95,19 +95,19 @@ class ApiFakePopularStaffClient:
             }
         ][:limit]
 
-    async def fetch_staff_directed_anime(self, staff_id: int, limit: int = 12):
+    async def fetch_staff_directed_anime(self, staff_id: int, role: str = "Director", limit: int = 12):
         self.directed_anime_count += 1
         return [
             {
                 "id": 99,
-                "titleRomaji": "Directed Anime",
+                "titleRomaji": "Directed Anime" if role == "Director" else f"{role or 'Staff'} Anime",
                 "titleEnglish": None,
                 "titleNative": None,
                 "coverImageUrl": None,
                 "year": 2001,
                 "format": "MOVIE",
                 "popularity": 1000,
-                "roles": ["Director"],
+                "roles": [role or "Director"],
             }
         ][:limit]
 
@@ -169,6 +169,17 @@ def test_staff_directed_anime_endpoint_returns_popular_directed_anime(client: Te
     assert cached_response.status_code == 200
     assert cached_response.json() == response.json()
     assert anilist.directed_anime_count == 1
+
+
+def test_staff_directed_anime_endpoint_accepts_role(client: TestClient, monkeypatch):
+    anilist = ApiFakePopularStaffClient()
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(anilist))
+
+    response = client.get("/api/staff/2/directed-anime", params={"role": "Music"})
+
+    assert response.status_code == 200
+    assert response.json()[0]["titleRomaji"] == "Music Anime"
+    assert response.json()[0]["roles"] == ["Music"]
 
 
 def test_compare_and_graph_endpoints_refresh_missing_cache(client: TestClient, monkeypatch):

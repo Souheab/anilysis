@@ -94,13 +94,14 @@ class AnimeCacheService:
         except AniListError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    async def staff_directed_anime(self, session: Session, staff_id: int, limit: int) -> list[dict[str, Any]]:
+    async def staff_directed_anime(self, session: Session, staff_id: int, role: str, limit: int) -> list[dict[str, Any]]:
+        normalized_role = role.strip()
         try:
             return await self.api_cache.get_or_fetch_json(
                 session,
-                f"anilist:staff_directed_anime:{staff_id}:{limit}",
+                f"anilist:staff_directed_anime:{staff_id}:{normalized_role.casefold()}:{limit}",
                 STAFF_ANIME_CACHE_TTL,
-                lambda: self.client.fetch_staff_directed_anime(staff_id=staff_id, limit=limit),
+                lambda: self.client.fetch_staff_directed_anime(staff_id=staff_id, role=normalized_role, limit=limit),
             )
         except AniListError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc

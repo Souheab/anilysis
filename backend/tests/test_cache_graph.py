@@ -54,7 +54,7 @@ class FakeAniListClient:
             }
         ][:limit]
 
-    async def fetch_staff_directed_anime(self, staff_id: int, limit: int = 12):
+    async def fetch_staff_directed_anime(self, staff_id: int, role: str = "Director", limit: int = 12):
         return [
             {
                 "id": 800,

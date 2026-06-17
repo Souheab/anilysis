@@ -305,6 +305,78 @@ async def test_fetch_popular_staff_filters_by_primary_occupation(httpx_mock):
 
 
 @pytest.mark.asyncio
+async def test_fetch_popular_staff_can_include_all_occupations(httpx_mock):
+    httpx_mock.add_response(
+        url=ANILIST_ENDPOINT,
+        json={
+            "data": {
+                "Page": {
+                    "pageInfo": {"hasNextPage": False},
+                    "staff": [
+                        {
+                            "id": 1,
+                            "name": {"full": "Popular Voice", "native": None},
+                            "image": {},
+                            "siteUrl": None,
+                            "favourites": 20000,
+                            "primaryOccupations": ["Voice Actor"],
+                        },
+                        {
+                            "id": 2,
+                            "name": {"full": "Popular Director", "native": None},
+                            "image": {},
+                            "siteUrl": None,
+                            "favourites": 12000,
+                            "primaryOccupations": ["Director"],
+                        },
+                    ],
+                }
+            }
+        },
+    )
+
+    results = await anilist_client().fetch_popular_staff(kind="All Staff", limit=2)
+
+    assert [staff["nameFull"] for staff in results] == ["Popular Voice", "Popular Director"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_popular_staff_matches_composer_music_occupation(httpx_mock):
+    httpx_mock.add_response(
+        url=ANILIST_ENDPOINT,
+        json={
+            "data": {
+                "Page": {
+                    "pageInfo": {"hasNextPage": False},
+                    "staff": [
+                        {
+                            "id": 1,
+                            "name": {"full": "Music Person", "native": None},
+                            "image": {},
+                            "siteUrl": None,
+                            "favourites": 20000,
+                            "primaryOccupations": ["Music"],
+                        },
+                        {
+                            "id": 2,
+                            "name": {"full": "Popular Director", "native": None},
+                            "image": {},
+                            "siteUrl": None,
+                            "favourites": 12000,
+                            "primaryOccupations": ["Director"],
+                        },
+                    ],
+                }
+            }
+        },
+    )
+
+    results = await anilist_client().fetch_popular_staff(kind="Composer", limit=2)
+
+    assert [staff["nameFull"] for staff in results] == ["Music Person"]
+
+
+@pytest.mark.asyncio
 async def test_fetch_staff_directed_anime_filters_dedupes_and_sorts_by_popularity(httpx_mock):
     httpx_mock.add_response(
         url=ANILIST_ENDPOINT,

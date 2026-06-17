@@ -347,6 +347,11 @@ class AniListClient:
         popular_staff: list[dict[str, Any]] = []
         page = 1
         normalized_kind = kind.casefold()
+        occupation_filters = {
+            "composer": ("composer", "music"),
+            "voice actor": ("voice actor",),
+        }.get(normalized_kind, (normalized_kind,))
+        include_all_staff = normalized_kind in {"all", "all staff", "staff"}
         while page <= max_pages and len(popular_staff) < limit:
             data = await self._graphql(
                 POPULAR_STAFF_QUERY,
@@ -359,7 +364,11 @@ class AniListClient:
                     for occupation in node.get("primaryOccupations") or []
                     if isinstance(occupation, str)
                 ]
-                if not any(normalized_kind in occupation.casefold() for occupation in occupations):
+                if not include_all_staff and not any(
+                    occupation_filter in occupation.casefold()
+                    for occupation in occupations
+                    for occupation_filter in occupation_filters
+                ):
                     continue
                 if not node.get("id"):
                     continue

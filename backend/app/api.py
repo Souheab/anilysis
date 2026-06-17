@@ -40,9 +40,14 @@ async def popular_staff(kind: str = "Director", limit: int = 50, session: Sessio
 
 
 @router.get("/staff/{staff_id}/directed-anime", response_model=list[PopularStaffAnime])
-async def staff_directed_anime(staff_id: int, limit: int = 12, session: Session = Depends(get_session)) -> list[PopularStaffAnime]:
+async def staff_directed_anime(
+    staff_id: int,
+    role: str = "Director",
+    limit: int = 12,
+    session: Session = Depends(get_session),
+) -> list[PopularStaffAnime]:
     bounded_limit = min(24, max(1, limit))
-    return await cache_service.staff_directed_anime(session, staff_id=staff_id, limit=bounded_limit)
+    return await cache_service.staff_directed_anime(session, staff_id=staff_id, role=role, limit=bounded_limit)
 
 
 @router.post("/anime/{anime_id}/refresh", response_model=RefreshResponse)
