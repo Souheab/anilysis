@@ -1,6 +1,6 @@
-# Anime Six Degrees
+# Anime Analysis
 
-A small full-stack app for finding connections between anime. Uses the AniList GraphQL API as a data source
+A small full-stack app for analyzing anime connections and relationships. Uses the AniList GraphQL API as a data source
 
 ## Requirements
 

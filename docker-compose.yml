@@ -1,13 +1,13 @@
 services:
-  anime-six-degrees:
+  animeanalysis:
     build: .
     ports:
       - "8080:8080"
     environment:
       VERBOSE_LOGS: ${VERBOSE_LOGS:-0}
     volumes:
-      - anime-cache:/app/backend/data
+      - animeanalysis-cache:/app/backend/data
     restart: unless-stopped
 
 volumes:
-  anime-cache:
+  animeanalysis-cache:

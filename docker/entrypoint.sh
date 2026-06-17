@@ -53,6 +53,6 @@ nginx_pid=$!
 
 app_url="http://localhost:8080"
 app_link=$'\e]8;;'"$app_url"$'\a'"$app_url"$'\e]8;;\a'
-printf '\nAnime Six Degrees is being served at %s\n\n' "$app_link"
+printf '\nAnime Analysis is being served at %s\n\n' "$app_link"
 
 wait -n "$backend_pid" "$nginx_pid"

@@ -1,9 +1,9 @@
 {
-  "name": "anime-six-degrees-desktop",
+  "name": "animeanalysis-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "Desktop app packaging for Six Degrees of Anime",
-  "desktopName": "anime-six-degrees",
+  "description": "Desktop app packaging for Anime Analysis",
+  "desktopName": "animeanalysis",
   "main": "main.cjs",
   "author": "",
   "license": "GPL-3.0-only",
@@ -23,8 +23,8 @@
     "electron-builder": "^26.0.12"
   },
   "build": {
-    "appId": "com.animesixdegrees.app",
-    "productName": "Six Degrees of Anime",
+    "appId": "com.animeanalysis.app",
+    "productName": "Anime Analysis",
     "icon": "../frontend/public/favicon.svg",
     "directories": {
       "output": "release"

@@ -39,7 +39,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="anime-six-degrees-backend",
+    name="animeanalysis-backend",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

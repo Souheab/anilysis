@@ -1,7 +1,7 @@
 const fs = require('node:fs')
 const path = require('node:path')
 
-const backendExecutable = path.resolve(__dirname, '..', 'dist', 'backend', 'anime-six-degrees-backend.exe')
+const backendExecutable = path.resolve(__dirname, '..', 'dist', 'backend', 'animeanalysis-backend.exe')
 
 if (!fs.existsSync(backendExecutable)) {
   console.error(`Missing Windows backend executable: ${backendExecutable}`)

@@ -1,1 +1,1 @@
-"""Six Degrees of Anime backend package."""
+"""Anime Analysis backend package."""

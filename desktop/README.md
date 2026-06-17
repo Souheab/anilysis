@@ -1,6 +1,6 @@
-# Six Degrees of Anime Desktop
+# Anime Analysis Desktop
 
-Electron packaging for running Six Degrees of Anime as a desktop app with the React frontend and FastAPI backend bundled together.
+Electron packaging for running Anime Analysis as a desktop app with the React frontend and FastAPI backend bundled together.
 
 ## Requirements
 

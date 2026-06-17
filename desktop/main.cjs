@@ -19,8 +19,8 @@ function getResourcePath(...parts) {
 
 function getBackendExecutablePath() {
   const executableName = process.platform === 'win32'
-    ? 'anime-six-degrees-backend.exe'
-    : 'anime-six-degrees-backend'
+    ? 'animeanalysis-backend.exe'
+    : 'animeanalysis-backend'
   return getResourcePath('backend', executableName)
 }
 
@@ -203,7 +203,7 @@ function createWindow(appUrl) {
     height: 860,
     minWidth: 1024,
     minHeight: 700,
-    title: 'Six Degrees of Anime',
+    title: 'Anime Analysis',
     frame: false,
     backgroundColor: '#02101f',
     webPreferences: {
@@ -254,7 +254,7 @@ async function bootstrap() {
 app.whenReady().then(() => {
   bootstrap().catch((error) => {
     console.error(error)
-    dialog.showErrorBox('Unable to start Six Degrees of Anime', error.message)
+    dialog.showErrorBox('Unable to start Anime Analysis', error.message)
     app.quit()
   })
 })

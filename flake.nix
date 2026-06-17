@@ -1,5 +1,5 @@
 {
-  description = "Development shell for Anime Six Degrees";
+  description = "Development shell for Anime Analysis";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

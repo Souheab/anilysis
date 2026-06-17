@@ -63,9 +63,9 @@ const NODE_TYPE_FILTERS = [
   { id: 'studio', label: 'Studio', color: '#65c56f', icon: Building2 },
 ] as const
 
-const FILTER_SECTION_STORAGE_KEY = 'anime-six-degrees.filterSections.v1'
-const RECENT_COMPARISONS_STORAGE_KEY = 'anime-six-degrees.recentComparisons.v1'
-const SETTINGS_STORAGE_KEY = 'anime-six-degrees.settings.v1'
+const FILTER_SECTION_STORAGE_KEY = 'animeanalysis.filterSections.v1'
+const RECENT_COMPARISONS_STORAGE_KEY = 'animeanalysis.recentComparisons.v1'
+const SETTINGS_STORAGE_KEY = 'animeanalysis.settings.v1'
 const RECENT_COMPARISON_LIMIT = 10
 const MIN_ANALYSIS_ANIME = 1
 const MAX_COMPARE_ANIME = 6
@@ -1090,7 +1090,7 @@ function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <h1>Six Degrees of Anime</h1>
+        <h1>Anime Analysis</h1>
         <CommandSearch
           activeSlotIndex={activeSlotIndex}
           onSelect={assignAnime}
