@@ -1,10 +1,87 @@
 .app-shell {
-  min-height: 100vh;
-  overflow: hidden;
-  background:
+  --shell-bg:
     radial-gradient(circle at 55% 24%, rgba(11, 78, 162, 0.18), transparent 34rem),
     linear-gradient(135deg, #03101c 0%, #061624 44%, #090f19 100%);
-  color: #f8fafc;
+  --text-strong: #f8fafc;
+  --text: #e2e8f0;
+  --text-muted: #cbd5e1;
+  --text-soft: #94a3b8;
+  --surface-glass: rgba(15, 23, 42, 0.72);
+  --surface-strong: rgba(3, 12, 24, 0.98);
+  --surface-panel: rgba(3, 12, 24, 0.8);
+  --surface-rail: rgba(2, 8, 16, 0.88);
+  --surface-card: rgba(15, 31, 49, 0.68);
+  --surface-hover: rgba(29, 155, 240, 0.18);
+  --border: rgba(148, 163, 184, 0.22);
+  --border-strong: rgba(148, 163, 184, 0.28);
+  --accent: #1d9bf0;
+  --accent-soft: rgba(29, 155, 240, 0.18);
+  --topbar-bg: rgba(1, 9, 18, 0.82);
+  --modal-backdrop: rgba(1, 9, 18, 0.68);
+  --graph-bg: #061320;
+  --graph-grid: rgba(148, 163, 184, 0.04);
+  --shadow: rgba(0, 0, 0, 0.28);
+  min-height: 100vh;
+  overflow: hidden;
+  background: var(--shell-bg);
+  color: var(--text-strong);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  .app-shell:not([data-theme]) {
+    --shell-bg:
+      radial-gradient(circle at 55% 24%, rgba(29, 155, 240, 0.16), transparent 34rem),
+      linear-gradient(135deg, #f8fafc 0%, #eef6ff 48%, #f7fafc 100%);
+    --text-strong: #0f172a;
+    --text: #1e293b;
+    --text-muted: #475569;
+    --text-soft: #64748b;
+    --surface-glass: rgba(255, 255, 255, 0.82);
+    --surface-strong: rgba(255, 255, 255, 0.98);
+    --surface-panel: rgba(255, 255, 255, 0.9);
+    --surface-rail: rgba(241, 245, 249, 0.92);
+    --surface-card: rgba(255, 255, 255, 0.82);
+    --surface-hover: rgba(29, 155, 240, 0.12);
+    --border: rgba(71, 85, 105, 0.18);
+    --border-strong: rgba(71, 85, 105, 0.26);
+    --accent-soft: rgba(29, 155, 240, 0.14);
+    --topbar-bg: rgba(255, 255, 255, 0.84);
+    --modal-backdrop: rgba(15, 23, 42, 0.18);
+    --graph-bg: #f8fbff;
+    --graph-grid: rgba(100, 116, 139, 0.12);
+    --shadow: rgba(15, 23, 42, 0.12);
+    color-scheme: light;
+  }
+}
+
+.app-shell[data-theme='light'] {
+  --shell-bg:
+    radial-gradient(circle at 55% 24%, rgba(29, 155, 240, 0.16), transparent 34rem),
+    linear-gradient(135deg, #f8fafc 0%, #eef6ff 48%, #f7fafc 100%);
+  --text-strong: #0f172a;
+  --text: #1e293b;
+  --text-muted: #475569;
+  --text-soft: #64748b;
+  --surface-glass: rgba(255, 255, 255, 0.82);
+  --surface-strong: rgba(255, 255, 255, 0.98);
+  --surface-panel: rgba(255, 255, 255, 0.9);
+  --surface-rail: rgba(241, 245, 249, 0.92);
+  --surface-card: rgba(255, 255, 255, 0.82);
+  --surface-hover: rgba(29, 155, 240, 0.12);
+  --border: rgba(71, 85, 105, 0.18);
+  --border-strong: rgba(71, 85, 105, 0.26);
+  --accent-soft: rgba(29, 155, 240, 0.14);
+  --topbar-bg: rgba(255, 255, 255, 0.84);
+  --modal-backdrop: rgba(15, 23, 42, 0.18);
+  --graph-bg: #f8fbff;
+  --graph-grid: rgba(100, 116, 139, 0.12);
+  --shadow: rgba(15, 23, 42, 0.12);
+  color-scheme: light;
+}
+
+.app-shell[data-theme='dark'] {
+  color-scheme: dark;
 }
 
 button {
@@ -19,8 +96,8 @@ button {
   align-items: center;
   height: 72px;
   padding: 0 32px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
-  background: rgba(1, 9, 18, 0.82);
+  border-bottom: 1px solid var(--border);
+  background: var(--topbar-bg);
   backdrop-filter: blur(16px);
 }
 
@@ -33,26 +110,29 @@ button {
 
 .topbar-actions {
   display: flex;
+  gap: 8px;
   grid-column: 3;
   justify-content: flex-end;
 }
 
+.theme-button,
 .settings-button {
   display: grid;
   width: 42px;
   height: 42px;
   place-items: center;
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(15, 23, 42, 0.72);
-  color: #e2e8f0;
+  background: var(--surface-glass);
+  color: var(--text);
   cursor: pointer;
 }
 
+.theme-button:hover,
 .settings-button:hover {
   border-color: rgba(29, 155, 240, 0.55);
-  background: rgba(29, 155, 240, 0.18);
-  color: #fff;
+  background: var(--accent-soft);
+  color: var(--text-strong);
 }
 
 .command-wrap {
@@ -2487,6 +2567,172 @@ button {
   color: #94a3b8;
   font-size: 11px;
   font-style: normal;
+}
+
+.topbar-context,
+.search-box,
+.entity-search-box,
+.number-input,
+.popularity-control select,
+.regex-control input,
+.settings-field select {
+  border-color: var(--border-strong);
+  background: var(--surface-glass);
+  color: var(--text-muted);
+}
+
+.search-box input,
+.entity-search-box input,
+.number-input input,
+.regex-control input,
+.settings-field select {
+  color: var(--text-strong);
+}
+
+.search-box input::placeholder,
+.entity-search-box input::placeholder,
+.regex-control input::placeholder {
+  color: var(--text-soft);
+}
+
+.command-popover,
+.settings-modal {
+  border-color: var(--border-strong);
+  background: var(--surface-strong);
+  box-shadow: 0 22px 80px var(--shadow);
+}
+
+.modal-backdrop {
+  background: var(--modal-backdrop);
+}
+
+.command-result:hover,
+.entity-result-row:hover,
+.filter-row:hover,
+.filter-collapse:hover,
+.switch-button:hover,
+.tool-button.active,
+.tool-button:hover,
+.reset-button:hover,
+.popular-staff-card:hover,
+.popular-staff-card.active {
+  background: var(--surface-hover);
+}
+
+.tool-rail {
+  border-color: var(--border);
+  background: var(--surface-rail);
+}
+
+.panel {
+  border-color: var(--border);
+  background: var(--surface-panel);
+}
+
+.tool-rail-button,
+.anime-slot,
+.entity-slot,
+.entity-search-card,
+.recent-card,
+.connection-card,
+.staff-card,
+.voice-card,
+.detail-section,
+.filter-card,
+.misc-options-card,
+.popular-staff-card,
+.entity-summary-card,
+.comparison-table,
+.entity-notes,
+.full-list-button,
+.tool-cluster,
+.inline-error {
+  border-color: var(--border);
+  background: var(--surface-card);
+  color: var(--text-strong);
+  box-shadow-color: var(--shadow);
+}
+
+.tool-rail-button,
+.topbar-context,
+.command-state,
+.result-main small,
+.slot-copy small,
+.entity-result-row small,
+.entity-summary-card small,
+.comparison-row span,
+.popular-staff-copy small,
+.popular-staff-header p,
+.entity-compare-header p,
+.entity-notes p,
+.detail-empty,
+.graph-empty,
+.muted,
+.node-count,
+.graph-loading,
+.filter-card-title small,
+.settings-slider small,
+.popularity-control p,
+.graph-setting-row em,
+.range-control {
+  color: var(--text-muted);
+}
+
+.topbar h1,
+.result-main span,
+.slot-copy strong,
+.entity-result-row strong,
+.entity-summary-card h3,
+.comparison-row strong,
+.popular-staff-copy strong,
+.popular-staff-header h2,
+.entity-compare-header h2,
+.filter-section-title h3,
+.filter-card-title strong,
+.filter-section-toggle,
+.filter-row,
+.tool-button,
+.reset-button,
+.settings-modal-header h2,
+.settings-slider strong,
+.settings-field strong,
+.panel-header h2,
+.popularity-control label,
+.graph-setting-row strong {
+  color: var(--text-strong);
+}
+
+.panel-header,
+.filter-card-header,
+.filter-card-body,
+.detail-section,
+.comparison-row,
+.tool-button + .tool-button {
+  border-color: var(--border);
+}
+
+.graph-panel {
+  background-color: var(--graph-bg);
+  background-image:
+    linear-gradient(var(--graph-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--graph-grid) 1px, transparent 1px);
+}
+
+.switch {
+  background: #64748b;
+}
+
+.switch.on {
+  background: var(--accent);
+}
+
+.app-shell[data-theme='light'] .tool-rail-button.active,
+.app-shell[data-theme='light'] .tool-rail-button:hover,
+.app-shell[data-theme='light'] .anime-slot.active,
+.app-shell[data-theme='light'] .entity-slot.active {
+  border-color: rgba(29, 155, 240, 0.58);
+  background: rgba(29, 155, 240, 0.12);
+  color: #0f172a;
 }
 
 @media (max-width: 1240px) {

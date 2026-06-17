@@ -9,6 +9,7 @@ cytoscape.use(cola)
 cytoscape.use(fcose)
 
 export type GraphLayout = 'fcose' | 'cola' | 'breadthfirst'
+export type GraphTheme = 'light' | 'dark'
 
 export interface GraphViewHandle {
   zoomIn: () => void
@@ -21,6 +22,7 @@ interface GraphViewProps {
   graph: GraphResponse | null
   graphLayout: GraphLayout
   graphSpacing: number
+  theme: GraphTheme
   showEdgeLabels: boolean
   wheelSensitivity: number
   selectedNodeId: string | null
@@ -98,7 +100,7 @@ function graphLayoutOptions(name: GraphLayout, spacing: number): LayoutOptions {
 }
 
 export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function GraphView(
-  { graph, graphLayout, graphSpacing, showEdgeLabels, wheelSensitivity, selectedNodeId, selectedEdgeId, onNodeSelect, onEdgeSelect },
+  { graph, graphLayout, graphSpacing, theme, showEdgeLabels, wheelSensitivity, selectedNodeId, selectedEdgeId, onNodeSelect, onEdgeSelect },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -160,6 +162,22 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       return
     }
 
+    const graphPalette = theme === 'light'
+      ? {
+          label: '#0f172a',
+          labelOutline: '#f8fafc',
+          edgeLabel: '#1e3a5f',
+          edge: '#64748b',
+          selected: '#0f172a',
+        }
+      : {
+          label: '#f8fafc',
+          labelOutline: '#020617',
+          edgeLabel: '#dbeafe',
+          edge: '#9ca3af',
+          selected: '#ffffff',
+        }
+
     const cy = cytoscape({
       container: containerRef.current,
       elements,
@@ -174,10 +192,10 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
             label: 'data(label)',
             width: 42,
             height: 42,
-            color: '#f8fafc',
+            color: graphPalette.label,
             'font-size': 12,
             'font-weight': 700,
-            'text-outline-color': '#020617',
+            'text-outline-color': graphPalette.labelOutline,
             'text-outline-width': 1,
             'text-halign': 'center',
             'text-valign': 'center',
@@ -256,16 +274,16 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
           style: {
             width: 'mapData(weight, 1, 6, 1.4, 4)',
             label: showEdgeLabels ? 'data(label)' : '',
-            color: '#dbeafe',
+            color: graphPalette.edgeLabel,
             'font-size': 9,
-            'line-color': '#9ca3af',
+            'line-color': graphPalette.edge,
             'line-opacity': 0.72,
             'curve-style': 'bezier',
             'text-rotation': 'autorotate',
-            'text-outline-color': '#020617',
+            'text-outline-color': graphPalette.labelOutline,
             'text-outline-width': 3,
             'target-arrow-shape': 'triangle',
-            'target-arrow-color': '#9ca3af',
+            'target-arrow-color': graphPalette.edge,
             'arrow-scale': 0.7,
           },
         },
@@ -305,7 +323,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
         {
           selector: 'node.selected, node:selected',
           style: {
-            'border-color': '#ffffff',
+            'border-color': graphPalette.selected,
             'border-width': 4,
             'z-index': 25,
           },
@@ -313,8 +331,8 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
         {
           selector: 'edge.selected',
           style: {
-            'line-color': '#ffffff',
-            'target-arrow-color': '#ffffff',
+            'line-color': graphPalette.selected,
+            'target-arrow-color': graphPalette.selected,
             'line-opacity': 1,
             width: 5,
             'z-index': 25,
@@ -357,7 +375,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       selectionStartRef.current = null
       setSelectionBox(null)
     }
-  }, [elements, graph, graphLayout, graphSpacing, onEdgeSelect, onNodeSelect, showEdgeLabels, wheelSensitivity])
+  }, [elements, graph, graphLayout, graphSpacing, onEdgeSelect, onNodeSelect, showEdgeLabels, theme, wheelSensitivity])
 
   useEffect(() => {
     const container = containerRef.current

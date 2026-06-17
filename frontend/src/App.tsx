@@ -23,6 +23,8 @@ import {
   Search,
   Settings,
   SlidersHorizontal,
+  Moon,
+  Sun,
   Users,
   X,
   ZoomIn,
@@ -78,6 +80,7 @@ const NODE_TYPE_FILTERS = [
 const FILTER_SECTION_STORAGE_KEY = 'animeanalysis.filterSections.v1'
 const RECENT_COMPARISONS_STORAGE_KEY = 'animeanalysis.recentComparisons.v1'
 const SETTINGS_STORAGE_KEY = 'animeanalysis.settings.v1'
+const THEME_STORAGE_KEY = 'animeanalysis.theme.v1'
 const RECENT_COMPARISON_LIMIT = 10
 const MIN_ANALYSIS_ANIME = 1
 const MAX_COMPARE_ANIME = 6
@@ -118,6 +121,8 @@ const POPULAR_STAFF_KINDS = [
 ] as const
 const ALL_ROLE_IDS = ROLE_FILTERS.map((filter) => filter.id)
 const DEFAULT_NODE_TYPES = { anime: true, staff: true, voiceActor: true, studio: true }
+type ThemePreference = 'light' | 'dark' | null
+type ThemeMode = Exclude<ThemePreference, null>
 const VOICE_ACTOR_NODE_TYPES = { ...DEFAULT_NODE_TYPES, staff: false }
 const DEFAULT_SHOW_ONLY_MAIN_STUDIO_EDGES = true
 const DEFAULT_EDGE_FILTER_REGEX = ''
@@ -256,6 +261,29 @@ function renderEntityIcon(type: EntityType, size: number) {
 
 function nodeTypesMatch(left: VisibleNodeTypes, right: VisibleNodeTypes) {
   return NODE_TYPE_FILTERS.every((filter) => left[filter.id] === right[filter.id])
+}
+
+function isThemeMode(value: unknown): value is ThemeMode {
+  return value === 'light' || value === 'dark'
+}
+
+function currentSystemTheme(): ThemeMode {
+  if (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches) {
+    return 'light'
+  }
+  return 'dark'
+}
+
+function initialThemePreference(): ThemePreference {
+  if (typeof window === 'undefined') {
+    return null
+  }
+  try {
+    const saved = window.localStorage.getItem(THEME_STORAGE_KEY)
+    return isThemeMode(saved) ? saved : null
+  } catch {
+    return null
+  }
 }
 
 function initialFilterSections(): FilterSectionState {
@@ -856,6 +884,8 @@ function App() {
   const [showGraphLegend, setShowGraphLegend] = useState(true)
   const [filtersOpen, setFiltersOpen] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [themePreference, setThemePreference] = useState<ThemePreference>(initialThemePreference)
+  const [systemTheme, setSystemTheme] = useState<ThemeMode>(currentSystemTheme)
   const [wheelSensitivity, setWheelSensitivity] = useState(initialWheelSensitivity)
   const [graphLayout, setGraphLayout] = useState<GraphLayout>(initialGraphLayout)
   const [graphSpacing, setGraphSpacing] = useState(initialGraphSpacing)
@@ -889,6 +919,7 @@ function App() {
   const effectiveActiveFilters = roleFiltersEnabled ? activeFilters : ALL_ROLE_IDS
   const effectiveVisibleNodeTypes = nodeTypeFiltersEnabled ? visibleNodeTypes : DEFAULT_NODE_TYPES
   const popularityFilters = useMemo(() => ({ staffMinFavourites, staffLimit }), [staffLimit, staffMinFavourites])
+  const effectiveTheme = themePreference ?? systemTheme
   const displayGraph = useMemo(
     () =>
       filterGraph(
@@ -928,6 +959,22 @@ function App() {
     () => displayGraph?.edges.find((edge) => edge.data.id === selectedEdgeId) ?? null,
     [displayGraph, selectedEdgeId],
   )
+  const toggleTheme = () => {
+    const nextTheme: ThemeMode = effectiveTheme === 'dark' ? 'light' : 'dark'
+    setThemePreference(nextTheme)
+    window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme)
+  }
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: light)')
+    const updateSystemTheme = () => setSystemTheme(mediaQuery.matches ? 'light' : 'dark')
+    updateSystemTheme()
+    mediaQuery.addEventListener('change', updateSystemTheme)
+    return () => mediaQuery.removeEventListener('change', updateSystemTheme)
+  }, [])
 
   useEffect(() => {
     window.localStorage.setItem(FILTER_SECTION_STORAGE_KEY, JSON.stringify(filterSections))
@@ -1344,7 +1391,7 @@ function App() {
         : 'Run analysis'
 
   return (
-    <main className="app-shell">
+    <main className="app-shell" data-theme={themePreference ?? undefined}>
       <header className="topbar">
         <h1>Anime Analysis</h1>
         {isEntityCompareTool ? (
@@ -1359,6 +1406,15 @@ function App() {
           />
         )}
         <div className="topbar-actions">
+          <button
+            type="button"
+            className="theme-button"
+            title={`Switch to ${effectiveTheme === 'dark' ? 'light' : 'dark'} mode`}
+            aria-label={`Switch to ${effectiveTheme === 'dark' ? 'light' : 'dark'} mode`}
+            onClick={toggleTheme}
+          >
+            {effectiveTheme === 'dark' ? <Moon size={19} /> : <Sun size={19} />}
+          </button>
           <button type="button" className="settings-button" title="Settings" aria-label="Open settings" onClick={() => setSettingsOpen(true)}>
             <Settings size={19} />
           </button>
@@ -1470,6 +1526,7 @@ function App() {
               graph={displayGraph}
               graphLayout={graphLayout}
               graphSpacing={graphSpacing}
+              theme={effectiveTheme}
               showEdgeLabels={showEdgeLabels}
               wheelSensitivity={wheelSensitivity}
               selectedNodeId={selectedNodeId}
