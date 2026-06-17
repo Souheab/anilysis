@@ -1216,7 +1216,8 @@ button {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 22px;
-  overflow: auto;
+  min-height: 0;
+  overflow: hidden;
   padding: 28px;
 }
 
@@ -1225,7 +1226,7 @@ button {
   grid-template-columns: 38px minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
-  max-width: 1180px;
+  width: 100%;
 }
 
 .popular-staff-header h2,
@@ -1248,7 +1249,9 @@ button {
   display: grid;
   align-content: start;
   gap: 8px;
-  max-width: 1180px;
+  width: 100%;
+  min-height: 0;
+  overflow: auto;
 }
 
 .popular-staff-card {
@@ -1340,8 +1343,8 @@ button {
   align-items: center;
   justify-content: center;
   gap: 9px;
+  width: 100%;
   min-height: 260px;
-  max-width: 1180px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 8px;
   background: rgba(15, 31, 49, 0.44);
@@ -2424,6 +2427,21 @@ button {
       "graph";
   }
 
+  .workspace.popular-staff-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "rail"
+      "graph"
+      "right";
+  }
+
+  .workspace.popular-staff-workspace.right-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "rail"
+      "graph";
+  }
+
   .tool-rail {
     flex-direction: row;
     overflow-x: auto;
@@ -2452,6 +2470,10 @@ button {
 
   .graph-panel {
     min-height: 680px;
+  }
+
+  .popular-staff-panel {
+    min-height: calc(100vh - 180px);
   }
 
   .comparison-preview-grid {

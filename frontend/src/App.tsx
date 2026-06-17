@@ -857,6 +857,8 @@ function App() {
   const activeTool = ANALYSIS_TOOLS.find((tool) => tool.id === activeToolId) ?? ANALYSIS_TOOLS[0]
   const isRelationshipTool = activeTool.id === 'relationships'
   const isPopularStaffTool = activeTool.id === 'popularStaff'
+  const staffDetailsCollapsed = isPopularStaffTool && !selectedPopularStaff
+  const effectiveRightPanelCollapsed = rightPanelCollapsed || staffDetailsCollapsed
   const selectedEdge = useMemo(
     () => displayGraph?.edges.find((edge) => edge.data.id === selectedEdgeId) ?? null,
     [displayGraph, selectedEdgeId],
@@ -1208,7 +1210,7 @@ function App() {
       </header>
 
       <div
-        className={`workspace ${isPopularStaffTool ? 'popular-staff-workspace' : ''} ${leftPanelCollapsed ? 'left-collapsed' : ''} ${rightPanelCollapsed || (isPopularStaffTool && !selectedPopularStaff) ? 'right-collapsed' : ''}`}
+        className={`workspace ${isPopularStaffTool ? 'popular-staff-workspace' : ''} ${leftPanelCollapsed ? 'left-collapsed' : ''} ${effectiveRightPanelCollapsed ? 'right-collapsed' : ''}`}
         style={
           {
             '--left-panel-width': `${leftPanelWidth}px`,
@@ -1288,7 +1290,7 @@ function App() {
               loading={isComparing}
               nodeCount={displayGraph?.nodes.length ?? 0}
               leftPanelCollapsed={leftPanelCollapsed}
-              rightPanelCollapsed={rightPanelCollapsed}
+              rightPanelCollapsed={effectiveRightPanelCollapsed}
               showLegend={showGraphLegend}
               onToggleLeftPanel={() => setLeftPanelCollapsed((current) => !current)}
               onToggleRightPanel={() => setRightPanelCollapsed((current) => !current)}
@@ -1328,7 +1330,7 @@ function App() {
           <MockToolPreview tool={activeTool} selectedAnime={selectedAnime} />
         )}
 
-        <aside className={`right-panel panel ${rightPanelCollapsed ? 'collapsed' : ''}`}>
+        <aside className={`right-panel panel ${effectiveRightPanelCollapsed ? 'collapsed' : ''}`}>
           <button
             type="button"
             className="panel-resize-handle right"
