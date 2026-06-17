@@ -77,7 +77,12 @@ class ApiFakeAniListClient:
 
 
 class ApiFakePopularStaffClient:
+    def __init__(self) -> None:
+        self.popular_staff_count = 0
+        self.directed_anime_count = 0
+
     async def fetch_popular_staff(self, kind: str = "Director", limit: int = 50):
+        self.popular_staff_count += 1
         return [
             {
                 "id": 2,
@@ -91,6 +96,7 @@ class ApiFakePopularStaffClient:
         ][:limit]
 
     async def fetch_staff_directed_anime(self, staff_id: int, limit: int = 12):
+        self.directed_anime_count += 1
         return [
             {
                 "id": 99,
@@ -116,9 +122,11 @@ def test_search_endpoint_returns_normalized_results(client: TestClient, monkeypa
 
 
 def test_popular_staff_endpoint_returns_directors_by_default(client: TestClient, monkeypatch):
-    monkeypatch.setattr(api, "anilist_client", ApiFakePopularStaffClient())
+    anilist = ApiFakePopularStaffClient()
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(anilist))
 
     response = client.get("/api/staff/popular")
+    cached_response = client.get("/api/staff/popular")
 
     assert response.status_code == 200
     assert response.json() == [
@@ -132,12 +140,17 @@ def test_popular_staff_endpoint_returns_directors_by_default(client: TestClient,
             "primaryOccupations": ["Director"],
         }
     ]
+    assert cached_response.status_code == 200
+    assert cached_response.json() == response.json()
+    assert anilist.popular_staff_count == 1
 
 
 def test_staff_directed_anime_endpoint_returns_popular_directed_anime(client: TestClient, monkeypatch):
-    monkeypatch.setattr(api, "anilist_client", ApiFakePopularStaffClient())
+    anilist = ApiFakePopularStaffClient()
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(anilist))
 
     response = client.get("/api/staff/2/directed-anime")
+    cached_response = client.get("/api/staff/2/directed-anime")
 
     assert response.status_code == 200
     assert response.json() == [
@@ -153,6 +166,9 @@ def test_staff_directed_anime_endpoint_returns_popular_directed_anime(client: Te
             "roles": ["Director"],
         }
     ]
+    assert cached_response.status_code == 200
+    assert cached_response.json() == response.json()
+    assert anilist.directed_anime_count == 1
 
 
 def test_compare_and_graph_endpoints_refresh_missing_cache(client: TestClient, monkeypatch):

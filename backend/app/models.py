@@ -82,3 +82,10 @@ class AnimeVoiceActorRole(SQLModel, table=True):
     role_category: str = "voice_actor"
     weight: float = 3.0
     updated_at: datetime = Field(default_factory=utc_now)
+
+
+class ApiCacheEntry(SQLModel, table=True):
+    key: str = Field(primary_key=True)
+    value_json: str
+    expires_at: datetime
+    updated_at: datetime = Field(default_factory=utc_now)

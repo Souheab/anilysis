@@ -1,36 +1,109 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import timedelta
+from typing import Any, Awaitable, Callable
 
 from fastapi import HTTPException
 from sqlmodel import Session, delete, select
 
 from app.anilist import AniListClient, AniListError
-from app.models import Anime, AnimeStaffRole, AnimeStudio, AnimeVoiceActorRole, Staff, Studio, VoiceActor, utc_now
+from app.models import ApiCacheEntry, Anime, AnimeStaffRole, AnimeStudio, AnimeVoiceActorRole, Staff, Studio, VoiceActor, utc_now
 from app.schemas import AnimeDetail, AnimeSearchResult, RefreshResponse
 from app.scoring import role_is_included, score_role, studio_weight
 
 
 CACHE_TTL = timedelta(days=7)
+SEARCH_CACHE_TTL = timedelta(minutes=30)
+POPULAR_STAFF_CACHE_TTL = timedelta(hours=12)
+STAFF_ANIME_CACHE_TTL = timedelta(hours=12)
+
+
+class ApiResponseCache:
+    def __init__(self) -> None:
+        self._locks: dict[str, asyncio.Lock] = {}
+
+    async def get_or_fetch_json(
+        self,
+        session: Session,
+        key: str,
+        ttl: timedelta,
+        fetcher: Callable[[], Awaitable[Any]],
+    ) -> Any:
+        cached = self._get_fresh(session, key)
+        if cached is not None:
+            return cached
+
+        lock = self._locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            cached = self._get_fresh(session, key)
+            if cached is not None:
+                return cached
+
+            value = await fetcher()
+            now = utc_now()
+            entry = session.get(ApiCacheEntry, key) or ApiCacheEntry(key=key, value_json="null", expires_at=now)
+            entry.value_json = json.dumps(value)
+            entry.expires_at = now + ttl
+            entry.updated_at = now
+            session.add(entry)
+            session.commit()
+            return value
+
+    def _get_fresh(self, session: Session, key: str) -> Any | None:
+        entry = session.get(ApiCacheEntry, key)
+        if not entry or entry.expires_at <= utc_now():
+            return None
+        return json.loads(entry.value_json)
 
 
 class AnimeCacheService:
     def __init__(self, client: AniListClient | None = None) -> None:
         self.client = client or AniListClient()
         self._load_locks: dict[int, asyncio.Lock] = {}
+        self.api_cache = ApiResponseCache()
 
     async def search_anime(self, session: Session, query: str) -> list[AnimeSearchResult]:
-        if len(query.strip()) < 2:
+        normalized_query = query.strip()
+        if len(normalized_query) < 2:
             return []
         try:
-            results = await self.client.search_anime(query.strip())
+            results = await self.api_cache.get_or_fetch_json(
+                session,
+                f"anilist:search_anime:{normalized_query.casefold()}",
+                SEARCH_CACHE_TTL,
+                lambda: self.client.search_anime(normalized_query),
+            )
         except AniListError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         for item in results:
             self._upsert_anime(session, item)
         session.commit()
         return [AnimeSearchResult(**item) for item in results]
+
+    async def popular_staff(self, session: Session, kind: str, limit: int) -> list[dict[str, Any]]:
+        normalized_kind = kind.strip() or "Director"
+        try:
+            return await self.api_cache.get_or_fetch_json(
+                session,
+                f"anilist:popular_staff:{normalized_kind.casefold()}:{limit}",
+                POPULAR_STAFF_CACHE_TTL,
+                lambda: self.client.fetch_popular_staff(kind=normalized_kind, limit=limit),
+            )
+        except AniListError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    async def staff_directed_anime(self, session: Session, staff_id: int, limit: int) -> list[dict[str, Any]]:
+        try:
+            return await self.api_cache.get_or_fetch_json(
+                session,
+                f"anilist:staff_directed_anime:{staff_id}:{limit}",
+                STAFF_ANIME_CACHE_TTL,
+                lambda: self.client.fetch_staff_directed_anime(staff_id=staff_id, limit=limit),
+            )
+        except AniListError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     async def refresh_anime(self, session: Session, anime_id: int, force: bool = True) -> RefreshResponse:
         anime = await self.ensure_anime_loaded(session, anime_id, force=force)

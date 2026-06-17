@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 import httpx
@@ -153,27 +154,34 @@ query StaffDirectedAnime($id: Int!, $page: Int!, $perPage: Int!) {
 
 
 class AniListClient:
+    _rate_lock: asyncio.Lock | None = None
+    _rate_lock_loop: asyncio.AbstractEventLoop | None = None
+    _last_request_at = 0.0
+
     def __init__(
         self,
         endpoint: str = ANILIST_ENDPOINT,
         timeout: float = 30.0,
         transient_retry_delay: float = 0.5,
         error_retry_delay: float = 0.3,
+        min_request_interval: float = 1.0,
     ) -> None:
         self.endpoint = endpoint
         self.timeout = timeout
         self.transient_retry_delay = transient_retry_delay
         self.error_retry_delay = error_retry_delay
+        self.min_request_interval = min_request_interval
 
     async def _graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
         last_error: Exception | None = None
         for attempt in range(3):
             try:
+                await self._throttle()
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     response = await client.post(self.endpoint, json={"query": query, "variables": variables})
                 if response.status_code == 429 or 500 <= response.status_code < 600:
                     last_error = AniListError(self._format_response_error(response))
-                    await asyncio.sleep(self.transient_retry_delay * (attempt + 1))
+                    await asyncio.sleep(self._retry_delay(response, attempt))
                     continue
                 try:
                     payload = response.json()
@@ -189,6 +197,43 @@ class AniListClient:
                 last_error = exc
                 await asyncio.sleep(self.error_retry_delay * (attempt + 1))
         raise AniListError(f"AniList request failed: {last_error}") from last_error
+
+    async def _throttle(self) -> None:
+        if self.min_request_interval <= 0:
+            return
+        lock = self._get_rate_lock()
+        async with lock:
+            now = time.monotonic()
+            elapsed = now - AniListClient._last_request_at
+            if elapsed < self.min_request_interval:
+                await asyncio.sleep(self.min_request_interval - elapsed)
+                now = time.monotonic()
+            AniListClient._last_request_at = now
+
+    def _get_rate_lock(self) -> asyncio.Lock:
+        loop = asyncio.get_running_loop()
+        if AniListClient._rate_lock is None or AniListClient._rate_lock_loop is not loop:
+            AniListClient._rate_lock = asyncio.Lock()
+            AniListClient._rate_lock_loop = loop
+            AniListClient._last_request_at = 0.0
+        return AniListClient._rate_lock
+
+    def _retry_delay(self, response: httpx.Response, attempt: int) -> float:
+        retry_after = self._retry_after_seconds(response)
+        fallback = self.transient_retry_delay * (attempt + 1)
+        if retry_after is None:
+            return fallback
+        return max(retry_after, fallback)
+
+    def _retry_after_seconds(self, response: httpx.Response) -> float | None:
+        value = response.headers.get("Retry-After")
+        if not value:
+            return None
+        try:
+            delay = float(value)
+        except ValueError:
+            return None
+        return max(0.0, delay)
 
     def _format_response_error(self, response: httpx.Response, reason: str | None = None) -> str:
         status = f"HTTP {response.status_code}"

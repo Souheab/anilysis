@@ -1,6 +1,12 @@
+import time
+
 import pytest
 
 from app.anilist import ANILIST_ENDPOINT, AniListClient, AniListError
+
+
+def anilist_client(**kwargs):
+    return AniListClient(min_request_interval=0, **kwargs)
 
 
 @pytest.mark.asyncio
@@ -24,7 +30,7 @@ async def test_search_anime_normalizes_results(httpx_mock):
         },
     )
 
-    results = await AniListClient().search_anime("bebop")
+    results = await anilist_client().search_anime("bebop")
 
     assert results == [
         {
@@ -69,7 +75,7 @@ async def test_anilist_retries_transient_error(httpx_mock):
         },
     )
 
-    results = await AniListClient().search_anime("monster")
+    results = await anilist_client().search_anime("monster")
 
     assert results[0]["id"] == 2
 
@@ -81,7 +87,7 @@ async def test_anilist_reports_transient_status_after_retries(httpx_mock):
     httpx_mock.add_response(url=ANILIST_ENDPOINT, status_code=429, text="Too Many Requests")
 
     with pytest.raises(AniListError) as exc_info:
-        await AniListClient(transient_retry_delay=0, error_retry_delay=0).search_anime("busy")
+        await anilist_client(transient_retry_delay=0, error_retry_delay=0).search_anime("busy")
 
     message = str(exc_info.value)
     assert "AniList request failed: AniList rate limited: HTTP 429" in message
@@ -95,7 +101,7 @@ async def test_anilist_reports_non_json_response(httpx_mock):
     httpx_mock.add_response(url=ANILIST_ENDPOINT, status_code=403, text="Forbidden")
 
     with pytest.raises(AniListError) as exc_info:
-        await AniListClient(transient_retry_delay=0, error_retry_delay=0).search_anime("blocked")
+        await anilist_client(transient_retry_delay=0, error_retry_delay=0).search_anime("blocked")
 
     assert "AniList returned a non-JSON response: HTTP 403: Forbidden" in str(exc_info.value)
 
@@ -124,7 +130,7 @@ async def test_fetch_studios_normalizes_non_paginated_connection(httpx_mock):
         },
     )
 
-    results = await AniListClient().fetch_studios(1)
+    results = await anilist_client().fetch_studios(1)
 
     assert results == [
         {
@@ -197,7 +203,7 @@ async def test_fetch_voice_actors_normalizes_japanese_cast_and_pagination(httpx_
         },
     )
 
-    results = await AniListClient().fetch_voice_actors(1)
+    results = await anilist_client().fetch_voice_actors(1)
 
     assert results == [
         {
@@ -274,7 +280,7 @@ async def test_fetch_popular_staff_filters_by_primary_occupation(httpx_mock):
         },
     )
 
-    results = await AniListClient().fetch_popular_staff(kind="Director", limit=2)
+    results = await anilist_client().fetch_popular_staff(kind="Director", limit=2)
 
     assert results == [
         {
@@ -359,7 +365,7 @@ async def test_fetch_staff_directed_anime_filters_dedupes_and_sorts_by_popularit
         },
     )
 
-    results = await AniListClient().fetch_staff_directed_anime(staff_id=10)
+    results = await anilist_client().fetch_staff_directed_anime(staff_id=10)
 
     assert [anime["id"] for anime in results] == [3, 2]
     assert results[0]["roles"] == ["Director", "Chief Director"]
@@ -374,4 +380,30 @@ async def test_anilist_raises_for_graphql_errors(httpx_mock):
     httpx_mock.add_response(url=ANILIST_ENDPOINT, json={"errors": [{"message": "bad"}]})
 
     with pytest.raises(AniListError):
-        await AniListClient().search_anime("bad")
+        await anilist_client().search_anime("bad")
+
+
+@pytest.mark.asyncio
+async def test_anilist_throttles_consecutive_graphql_requests(httpx_mock):
+    httpx_mock.add_response(url=ANILIST_ENDPOINT, json={"data": {"Page": {"media": []}}})
+    httpx_mock.add_response(url=ANILIST_ENDPOINT, json={"data": {"Page": {"media": []}}})
+    client = AniListClient(min_request_interval=0.01)
+
+    start = time.monotonic()
+    await client.search_anime("first")
+    await client.search_anime("second")
+
+    assert time.monotonic() - start >= 0.01
+
+
+@pytest.mark.asyncio
+async def test_anilist_honors_retry_after_on_rate_limit(httpx_mock):
+    httpx_mock.add_response(url=ANILIST_ENDPOINT, status_code=429, headers={"Retry-After": "0.01"}, text="Too Many Requests")
+    httpx_mock.add_response(url=ANILIST_ENDPOINT, json={"data": {"Page": {"media": []}}})
+    client = AniListClient(transient_retry_delay=0, error_retry_delay=0, min_request_interval=0)
+
+    start = time.monotonic()
+    results = await client.search_anime("retry")
+
+    assert results == []
+    assert time.monotonic() - start >= 0.01

@@ -1,20 +1,26 @@
+import asyncio
+import json
 from datetime import timedelta
 
 import pytest
+from fastapi import HTTPException
 from sqlmodel import Session
 from sqlmodel import select
 
+from app.anilist import AniListError
 from app.cache import AnimeCacheService
 from app.graph import GraphService
-from app.models import Anime, AnimeStaffRole, AnimeStudio, AnimeVoiceActorRole, Staff, Studio, VoiceActor, utc_now
+from app.models import ApiCacheEntry, Anime, AnimeStaffRole, AnimeStudio, AnimeVoiceActorRole, Staff, Studio, VoiceActor, utc_now
 from app.scoring import connection_score_from_points, score_role
 
 
 class FakeAniListClient:
     def __init__(self) -> None:
         self.fetch_count = 0
+        self.search_count = 0
 
     async def search_anime(self, query: str):
+        self.search_count += 1
         return [
             {
                 "id": 10,
@@ -34,6 +40,42 @@ class FakeAniListClient:
                 "favourites": None,
             }
         ]
+
+    async def fetch_popular_staff(self, kind: str = "Director", limit: int = 50):
+        return [
+            {
+                "id": 700,
+                "nameFull": f"Popular {kind}",
+                "nameNative": None,
+                "imageUrl": None,
+                "siteUrl": None,
+                "favourites": 1000,
+                "primaryOccupations": [kind],
+            }
+        ][:limit]
+
+    async def fetch_staff_directed_anime(self, staff_id: int, limit: int = 12):
+        return [
+            {
+                "id": 800,
+                "titleRomaji": f"Staff {staff_id} Anime",
+                "titleEnglish": None,
+                "titleNative": None,
+                "coverImageUrl": None,
+                "bannerImageUrl": None,
+                "year": 2024,
+                "format": "TV",
+                "episodes": None,
+                "status": None,
+                "description": None,
+                "siteUrl": None,
+                "averageScore": None,
+                "popularity": 100,
+                "favourites": None,
+                "roles": ["Director"],
+            }
+        ][:limit]
+
 
     async def fetch_anime(self, anime_id: int):
         self.fetch_count += 1
@@ -86,6 +128,12 @@ class FakeAniListClient:
         ]
 
 
+class FailingSearchClient(FakeAniListClient):
+    async def search_anime(self, query: str):
+        self.search_count += 1
+        raise AniListError("upstream failed")
+
+
 @pytest.mark.asyncio
 async def test_cache_skips_fresh_anime(session: Session):
     client = FakeAniListClient()
@@ -121,6 +169,72 @@ async def test_cache_refreshes_and_stores_relationships(session: Session):
     assert len(session.exec(select(AnimeStaffRole)).all()) == 1
     assert len(session.exec(select(AnimeStudio)).all()) == 1
     assert len(session.exec(select(AnimeVoiceActorRole)).all()) == 1
+
+
+@pytest.mark.asyncio
+async def test_search_uses_sqlite_response_cache(session: Session):
+    client = FakeAniListClient()
+    service = AnimeCacheService(client)
+
+    first = await service.search_anime(session, " Search ")
+    second = await service.search_anime(session, "search")
+
+    assert first[0].titleRomaji == "Search Result"
+    assert second[0].titleRomaji == "Search Result"
+    assert client.search_count == 1
+
+
+@pytest.mark.asyncio
+async def test_stale_search_cache_is_refreshed(session: Session):
+    client = FakeAniListClient()
+    service = AnimeCacheService(client)
+    session.add(
+        ApiCacheEntry(
+            key="anilist:search_anime:search",
+            value_json=json.dumps([]),
+            expires_at=utc_now() - timedelta(minutes=1),
+        )
+    )
+    session.commit()
+
+    results = await service.search_anime(session, "search")
+
+    assert results[0].titleRomaji == "Search Result"
+    assert client.search_count == 1
+    entry = session.get(ApiCacheEntry, "anilist:search_anime:search")
+    assert entry is not None
+    assert entry.expires_at > utc_now()
+
+
+@pytest.mark.asyncio
+async def test_failed_search_is_not_cached(session: Session):
+    service = AnimeCacheService(FailingSearchClient())
+
+    with pytest.raises(HTTPException):
+        await service.search_anime(session, "search")
+
+    assert session.get(ApiCacheEntry, "anilist:search_anime:search") is None
+
+
+@pytest.mark.asyncio
+async def test_api_response_cache_coalesces_concurrent_fetches(session: Session):
+    service = AnimeCacheService(FakeAniListClient())
+    calls = 0
+
+    async def fetcher():
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.01)
+        return [{"value": calls}]
+
+    results = await asyncio.gather(
+        service.api_cache.get_or_fetch_json(session, "coalesced", timedelta(minutes=5), fetcher),
+        service.api_cache.get_or_fetch_json(session, "coalesced", timedelta(minutes=5), fetcher),
+        service.api_cache.get_or_fetch_json(session, "coalesced", timedelta(minutes=5), fetcher),
+    )
+
+    assert results == [[{"value": 1}], [{"value": 1}], [{"value": 1}]]
+    assert calls == 1
 
 
 def seed_compare_data(session: Session) -> None:
