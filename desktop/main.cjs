@@ -204,6 +204,7 @@ function createWindow(appUrl) {
     minWidth: 1024,
     minHeight: 700,
     title: 'Six Degrees of Anime',
+    frame: false,
     backgroundColor: '#02101f',
     webPreferences: {
       contextIsolation: true,
