@@ -23,6 +23,21 @@ export interface AnimeDetail extends AnimeSearchResult {
   updatedAt?: string | null
 }
 
+export interface PopularStaff {
+  id: number
+  nameFull: string
+  nameNative?: string | null
+  imageUrl?: string | null
+  siteUrl?: string | null
+  favourites?: number | null
+  primaryOccupations: string[]
+}
+
+export interface PopularStaffAnime extends AnimeSearchResult {
+  popularity?: number | null
+  roles: string[]
+}
+
 export interface SharedStaff {
   staffId: number
   name: string
@@ -149,6 +164,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function searchAnime(query: string, signal?: AbortSignal) {
   return request<AnimeSearchResult[]>(`/api/search/anime?q=${encodeURIComponent(query)}`, { signal })
+}
+
+export function fetchPopularStaff(kind = 'Director', limit = 50, signal?: AbortSignal) {
+  const params = new URLSearchParams({ kind, limit: String(limit) })
+  return request<PopularStaff[]>(`/api/staff/popular?${params.toString()}`, { signal })
+}
+
+export function fetchStaffDirectedAnime(staffId: number, limit = 12, signal?: AbortSignal) {
+  const params = new URLSearchParams({ limit: String(limit) })
+  return request<PopularStaffAnime[]>(`/api/staff/${staffId}/directed-anime?${params.toString()}`, { signal })
 }
 
 export function compareAnime(

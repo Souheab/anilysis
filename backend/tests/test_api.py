@@ -76,6 +76,36 @@ class ApiFakeAniListClient:
         ]
 
 
+class ApiFakePopularStaffClient:
+    async def fetch_popular_staff(self, kind: str = "Director", limit: int = 50):
+        return [
+            {
+                "id": 2,
+                "nameFull": f"Popular {kind}",
+                "nameNative": None,
+                "imageUrl": None,
+                "siteUrl": "https://anilist.co/staff/2",
+                "favourites": 12000,
+                "primaryOccupations": [kind],
+            }
+        ][:limit]
+
+    async def fetch_staff_directed_anime(self, staff_id: int, limit: int = 12):
+        return [
+            {
+                "id": 99,
+                "titleRomaji": "Directed Anime",
+                "titleEnglish": None,
+                "titleNative": None,
+                "coverImageUrl": None,
+                "year": 2001,
+                "format": "MOVIE",
+                "popularity": 1000,
+                "roles": ["Director"],
+            }
+        ][:limit]
+
+
 def test_search_endpoint_returns_normalized_results(client: TestClient, monkeypatch):
     monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeAniListClient()))
 
@@ -83,6 +113,46 @@ def test_search_endpoint_returns_normalized_results(client: TestClient, monkeypa
 
     assert response.status_code == 200
     assert response.json()[0]["titleRomaji"] == "Source"
+
+
+def test_popular_staff_endpoint_returns_directors_by_default(client: TestClient, monkeypatch):
+    monkeypatch.setattr(api, "anilist_client", ApiFakePopularStaffClient())
+
+    response = client.get("/api/staff/popular")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "id": 2,
+            "nameFull": "Popular Director",
+            "nameNative": None,
+            "imageUrl": None,
+            "siteUrl": "https://anilist.co/staff/2",
+            "favourites": 12000,
+            "primaryOccupations": ["Director"],
+        }
+    ]
+
+
+def test_staff_directed_anime_endpoint_returns_popular_directed_anime(client: TestClient, monkeypatch):
+    monkeypatch.setattr(api, "anilist_client", ApiFakePopularStaffClient())
+
+    response = client.get("/api/staff/2/directed-anime")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "id": 99,
+            "titleRomaji": "Directed Anime",
+            "titleEnglish": None,
+            "titleNative": None,
+            "coverImageUrl": None,
+            "year": 2001,
+            "format": "MOVIE",
+            "popularity": 1000,
+            "roles": ["Director"],
+        }
+    ]
 
 
 def test_compare_and_graph_endpoints_refresh_missing_cache(client: TestClient, monkeypatch):

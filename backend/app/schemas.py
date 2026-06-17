@@ -33,6 +33,21 @@ class AnimeDetail(AnimeSearchResult):
     updatedAt: datetime | None = None
 
 
+class PopularStaff(BaseModel):
+    id: int
+    nameFull: str
+    nameNative: str | None = None
+    imageUrl: str | None = None
+    siteUrl: str | None = None
+    favourites: int | None = None
+    primaryOccupations: list[str] = Field(default_factory=list)
+
+
+class PopularStaffAnime(AnimeSearchResult):
+    popularity: int | None = None
+    roles: list[str] = Field(default_factory=list)
+
+
 class RefreshResponse(BaseModel):
     anime: AnimeDetail
     staffCount: int

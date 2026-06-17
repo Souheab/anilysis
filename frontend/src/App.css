@@ -101,6 +101,7 @@ button {
 .result-main,
 .filter-row,
 .staff-row,
+.popular-staff-card,
 .full-list-button,
 .analysis-button,
 .tool-button,
@@ -186,6 +187,16 @@ button {
 }
 
 .workspace.left-collapsed.right-collapsed {
+  grid-template-columns: 78px minmax(0, 1fr);
+  grid-template-areas: "rail graph";
+}
+
+.workspace.popular-staff-workspace {
+  grid-template-columns: 78px minmax(520px, 1fr) var(--right-panel-width, 390px);
+  grid-template-areas: "rail graph right";
+}
+
+.workspace.popular-staff-workspace.right-collapsed {
   grid-template-columns: 78px minmax(0, 1fr);
   grid-template-areas: "rail graph";
 }
@@ -340,6 +351,46 @@ button {
 .mock-note strong {
   color: #fed7aa;
   font-size: 13px;
+}
+
+.popular-staff-controls {
+  display: grid;
+  gap: 18px;
+}
+
+.staff-kind-control {
+  display: grid;
+  gap: 7px;
+}
+
+.staff-kind-control span {
+  color: #dbeafe;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.staff-kind-control select {
+  min-height: 42px;
+  min-width: 0;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  outline: 0;
+  padding: 0 12px;
+  background: rgba(15, 23, 42, 0.58);
+  color: #f8fafc;
+  font: inherit;
+}
+
+.staff-kind-control.compact {
+  min-width: 190px;
+}
+
+.staff-kind-control.compact select {
+  min-height: 38px;
+}
+
+.compact-card {
+  margin-top: 0;
 }
 
 .panel-resize-handle {
@@ -999,6 +1050,11 @@ button {
   text-align: left;
 }
 
+.staff-row.active,
+.staff-row:hover {
+  background: rgba(29, 155, 240, 0.14);
+}
+
 .staff-name {
   min-width: 0;
   overflow: hidden;
@@ -1154,6 +1210,210 @@ button {
   gap: 26px;
   overflow: auto;
   padding: 28px;
+}
+
+.popular-staff-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 22px;
+  overflow: auto;
+  padding: 28px;
+}
+
+.popular-staff-header {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  max-width: 1180px;
+}
+
+.popular-staff-header h2,
+.popular-staff-header p {
+  margin: 0;
+}
+
+.popular-staff-header h2 {
+  font-size: 24px;
+}
+
+.popular-staff-header p {
+  margin-top: 5px;
+  color: #cbd5e1;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.popular-staff-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  max-width: 1180px;
+}
+
+.popular-staff-card {
+  display: grid;
+  grid-template-columns: 42px 46px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 70px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: rgba(15, 31, 49, 0.62);
+  color: inherit;
+  text-align: left;
+}
+
+.popular-staff-card:hover,
+.popular-staff-card.active {
+  border-color: rgba(29, 155, 240, 0.68);
+  background: rgba(29, 155, 240, 0.16);
+}
+
+.popular-staff-card img,
+.popular-staff-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 6px;
+}
+
+.popular-staff-card img {
+  object-fit: cover;
+}
+
+.popular-staff-avatar {
+  display: grid;
+  place-items: center;
+  background: rgba(29, 155, 240, 0.18);
+  color: #dbeafe;
+}
+
+.popular-staff-rank {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 6px;
+  background: #1d9bf0;
+  color: #f8fafc;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.popular-staff-copy {
+  min-width: 0;
+  padding-right: 4px;
+}
+
+.popular-staff-copy strong,
+.popular-staff-copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popular-staff-copy strong {
+  color: #f8fafc;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.popular-staff-copy small {
+  margin-top: 6px;
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.popular-staff-heat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #fed7aa;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.popular-staff-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 260px;
+  max-width: 1180px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 8px;
+  background: rgba(15, 31, 49, 0.44);
+  color: #cbd5e1;
+}
+
+.popular-staff-detail {
+  min-height: 100%;
+}
+
+.directed-anime-list {
+  display: grid;
+  gap: 10px;
+}
+
+.directed-anime-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) minmax(86px, auto);
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  padding-bottom: 10px;
+}
+
+.directed-anime-row .anime-thumb,
+.directed-anime-row .anime-thumb.fallback {
+  width: 42px;
+  height: 56px;
+}
+
+.directed-anime-row span {
+  min-width: 0;
+}
+
+.directed-anime-row strong,
+.directed-anime-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.directed-anime-row strong {
+  color: #f8fafc;
+  font-size: 13px;
+}
+
+.directed-anime-row small {
+  color: #cbd5e1;
+  font-size: 11px;
+}
+
+.directed-anime-row > small {
+  text-align: right;
+}
+
+.staff-profile-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  border: 1px solid rgba(29, 155, 240, 0.48);
+  border-radius: 8px;
+  background: rgba(29, 155, 240, 0.2);
+  color: #f8fafc;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.staff-profile-link:hover {
+  border-color: rgba(29, 155, 240, 0.78);
+  background: rgba(29, 155, 240, 0.3);
 }
 
 .mock-preview-header {

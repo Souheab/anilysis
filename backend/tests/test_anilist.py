@@ -224,6 +224,150 @@ async def test_fetch_voice_actors_normalizes_japanese_cast_and_pagination(httpx_
 
 
 @pytest.mark.asyncio
+async def test_fetch_popular_staff_filters_by_primary_occupation(httpx_mock):
+    httpx_mock.add_response(
+        url=ANILIST_ENDPOINT,
+        json={
+            "data": {
+                "Page": {
+                    "pageInfo": {"hasNextPage": True},
+                    "staff": [
+                        {
+                            "id": 1,
+                            "name": {"full": "Popular Voice", "native": None},
+                            "image": {},
+                            "siteUrl": None,
+                            "favourites": 20000,
+                            "primaryOccupations": ["Voice Actor"],
+                        },
+                        {
+                            "id": 2,
+                            "name": {"full": "Popular Director", "native": "監督"},
+                            "image": {"large": "director.jpg", "medium": None},
+                            "siteUrl": "https://anilist.co/staff/2",
+                            "favourites": 12000,
+                            "primaryOccupations": ["Director", "Writer"],
+                        },
+                    ],
+                }
+            }
+        },
+    )
+    httpx_mock.add_response(
+        url=ANILIST_ENDPOINT,
+        json={
+            "data": {
+                "Page": {
+                    "pageInfo": {"hasNextPage": False},
+                    "staff": [
+                        {
+                            "id": 3,
+                            "name": {"full": None, "native": None},
+                            "image": {"large": None, "medium": "assistant.jpg"},
+                            "siteUrl": None,
+                            "favourites": None,
+                            "primaryOccupations": ["Assistant Director"],
+                        },
+                    ],
+                }
+            }
+        },
+    )
+
+    results = await AniListClient().fetch_popular_staff(kind="Director", limit=2)
+
+    assert results == [
+        {
+            "id": 2,
+            "nameFull": "Popular Director",
+            "nameNative": "監督",
+            "imageUrl": "director.jpg",
+            "siteUrl": "https://anilist.co/staff/2",
+            "favourites": 12000,
+            "primaryOccupations": ["Director", "Writer"],
+        },
+        {
+            "id": 3,
+            "nameFull": "Unknown staff",
+            "nameNative": None,
+            "imageUrl": "assistant.jpg",
+            "siteUrl": None,
+            "favourites": None,
+            "primaryOccupations": ["Assistant Director"],
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_fetch_staff_directed_anime_filters_dedupes_and_sorts_by_popularity(httpx_mock):
+    httpx_mock.add_response(
+        url=ANILIST_ENDPOINT,
+        json={
+            "data": {
+                "Staff": {
+                    "staffMedia": {
+                        "pageInfo": {"hasNextPage": False},
+                        "edges": [
+                            {
+                                "staffRole": "Script",
+                                "node": {
+                                    "id": 1,
+                                    "title": {"romaji": "Written Anime", "english": None, "native": None},
+                                    "coverImage": {},
+                                    "startDate": {},
+                                    "format": "TV",
+                                    "popularity": 500,
+                                },
+                            },
+                            {
+                                "staffRole": "Episode Director",
+                                "node": {
+                                    "id": 2,
+                                    "title": {"romaji": "Less Popular Directed", "english": None, "native": None},
+                                    "coverImage": {"large": "less.jpg", "medium": None},
+                                    "startDate": {"year": 2001},
+                                    "format": "MOVIE",
+                                    "popularity": 100,
+                                },
+                            },
+                            {
+                                "staffRole": "Director",
+                                "node": {
+                                    "id": 3,
+                                    "title": {"romaji": "Popular Directed", "english": "Popular", "native": None},
+                                    "coverImage": {"large": "popular.jpg", "medium": None},
+                                    "startDate": {"year": 2002},
+                                    "format": "TV",
+                                    "popularity": 1000,
+                                },
+                            },
+                            {
+                                "staffRole": "Chief Director",
+                                "node": {
+                                    "id": 3,
+                                    "title": {"romaji": "Popular Directed", "english": "Popular", "native": None},
+                                    "coverImage": {"large": "popular.jpg", "medium": None},
+                                    "startDate": {"year": 2002},
+                                    "format": "TV",
+                                    "popularity": 1000,
+                                },
+                            },
+                        ],
+                    }
+                }
+            }
+        },
+    )
+
+    results = await AniListClient().fetch_staff_directed_anime(staff_id=10)
+
+    assert [anime["id"] for anime in results] == [3, 2]
+    assert results[0]["roles"] == ["Director", "Chief Director"]
+    assert results[0]["popularity"] == 1000
+    assert results[1]["roles"] == ["Episode Director"]
+
+
+@pytest.mark.asyncio
 async def test_anilist_raises_for_graphql_errors(httpx_mock):
     httpx_mock.add_response(url=ANILIST_ENDPOINT, json={"errors": [{"message": "bad"}]})
     httpx_mock.add_response(url=ANILIST_ENDPOINT, json={"errors": [{"message": "bad"}]})

@@ -36,11 +36,15 @@ import {
   DEFAULT_STAFF_POPULARITY_FILTERS,
   fetchGraph,
   fetchNodeDetail,
+  fetchPopularStaff,
+  fetchStaffDirectedAnime,
   searchAnime,
   type AnimeSearchResult,
   type CompareResponse,
   type GraphResponse,
   type NodeDetail,
+  type PopularStaffAnime,
+  type PopularStaff,
   type ScoreBreakdown,
   type SharedStaff,
   type SharedVoiceActor,
@@ -70,6 +74,8 @@ const SETTINGS_STORAGE_KEY = 'animeanalysis.settings.v1'
 const RECENT_COMPARISON_LIMIT = 10
 const MIN_ANALYSIS_ANIME = 1
 const MAX_COMPARE_ANIME = 6
+const POPULAR_STAFF_LIMIT = 50
+const POPULAR_STAFF_KINDS = ['Director'] as const
 const ALL_ROLE_IDS = ROLE_FILTERS.map((filter) => filter.id)
 const DEFAULT_NODE_TYPES = { anime: true, staff: true, voiceActor: true, studio: true }
 const VOICE_ACTOR_NODE_TYPES = { ...DEFAULT_NODE_TYPES, staff: false }
@@ -106,7 +112,8 @@ type FilterTemplateId = (typeof FILTER_TEMPLATES)[number]['id']
 type FilterSectionId = 'roles' | 'nodes' | 'edges' | 'favourites' | 'graph'
 type FilterSectionState = Record<FilterSectionId, boolean>
 type ResizePanel = 'left' | 'right'
-type AnalysisToolId = 'relationships' | 'comparator' | 'staffExplorer'
+type AnalysisToolId = 'relationships' | 'comparator' | 'popularStaff'
+type PopularStaffKind = (typeof POPULAR_STAFF_KINDS)[number]
 type AnalysisToolDefinition = {
   id: AnalysisToolId
   label: string
@@ -139,11 +146,11 @@ const ANALYSIS_TOOLS: AnalysisToolDefinition[] = [
     icon: ArrowRightLeft,
   },
   {
-    id: 'staffExplorer',
-    label: 'Staff Explorer',
+    id: 'popularStaff',
+    label: 'Popular Staff',
     shortLabel: 'Staff',
-    description: 'Mock staff research workspace for collaborators, timelines, and signature roles.',
-    status: 'Mockup',
+    description: 'Browse selectable staff by role, starting with AniList favorites-ranked anime directors.',
+    status: 'Live tool',
     icon: Users,
   },
 ]
@@ -178,6 +185,10 @@ function primaryRole(staff: SharedStaff) {
 
 function primaryCharacter(actor: SharedVoiceActor) {
   return Object.values(actor.charactersByAnime).flat()[0] || 'Voice'
+}
+
+function staffOccupations(staff: PopularStaff | null) {
+  return staff?.primaryOccupations?.length ? staff.primaryOccupations.join(' / ') : 'Staff'
 }
 
 function nodeTypeLabel(type: NodeDetail['type']) {
@@ -793,6 +804,14 @@ function App() {
   const [filterSections, setFilterSections] = useState<FilterSectionState>(initialFilterSections)
   const [recentComparisons, setRecentComparisons] = useState<RecentComparison[]>(initialRecentComparisons)
   const [recentComparisonsOpen, setRecentComparisonsOpen] = useState(false)
+  const [popularStaffKind, setPopularStaffKind] = useState<PopularStaffKind>('Director')
+  const [popularStaff, setPopularStaff] = useState<PopularStaff[]>([])
+  const [selectedPopularStaff, setSelectedPopularStaff] = useState<PopularStaff | null>(null)
+  const [popularStaffAnime, setPopularStaffAnime] = useState<PopularStaffAnime[]>([])
+  const [popularStaffAnimeLoading, setPopularStaffAnimeLoading] = useState(false)
+  const [popularStaffAnimeError, setPopularStaffAnimeError] = useState<string | null>(null)
+  const [popularStaffLoading, setPopularStaffLoading] = useState(false)
+  const [popularStaffError, setPopularStaffError] = useState<string | null>(null)
   const [comparison, setComparison] = useState<CompareResponse | null>(null)
   const [graph, setGraph] = useState<GraphResponse | null>(null)
   const [nodeDetail, setNodeDetail] = useState<NodeDetail | null>(null)
@@ -837,6 +856,7 @@ function App() {
   const atSelectionLimit = selectedAnime.length >= MAX_COMPARE_ANIME
   const activeTool = ANALYSIS_TOOLS.find((tool) => tool.id === activeToolId) ?? ANALYSIS_TOOLS[0]
   const isRelationshipTool = activeTool.id === 'relationships'
+  const isPopularStaffTool = activeTool.id === 'popularStaff'
   const selectedEdge = useMemo(
     () => displayGraph?.edges.find((edge) => edge.data.id === selectedEdgeId) ?? null,
     [displayGraph, selectedEdgeId],
@@ -853,6 +873,51 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ graphLayout, graphSpacing, wheelSensitivity }))
   }, [graphLayout, graphSpacing, wheelSensitivity])
+
+  useEffect(() => {
+    if (!isPopularStaffTool) {
+      return
+    }
+    const controller = new AbortController()
+    setPopularStaffLoading(true)
+    setPopularStaffError(null)
+    void fetchPopularStaff(popularStaffKind, POPULAR_STAFF_LIMIT, controller.signal)
+      .then((items) => {
+        setPopularStaff(items)
+        setSelectedPopularStaff((current) => current && items.some((item) => item.id === current.id) ? current : null)
+      })
+      .catch((requestError) => {
+        if (controller.signal.aborted) return
+        setPopularStaffError(requestError instanceof Error ? requestError.message : 'Could not load popular staff')
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPopularStaffLoading(false)
+      })
+    return () => controller.abort()
+  }, [isPopularStaffTool, popularStaffKind])
+
+  useEffect(() => {
+    if (!isPopularStaffTool || !selectedPopularStaff) {
+      setPopularStaffAnime([])
+      setPopularStaffAnimeLoading(false)
+      setPopularStaffAnimeError(null)
+      return
+    }
+    const controller = new AbortController()
+    setPopularStaffAnime([])
+    setPopularStaffAnimeLoading(true)
+    setPopularStaffAnimeError(null)
+    void fetchStaffDirectedAnime(selectedPopularStaff.id, 12, controller.signal)
+      .then(setPopularStaffAnime)
+      .catch((requestError) => {
+        if (controller.signal.aborted) return
+        setPopularStaffAnimeError(requestError instanceof Error ? requestError.message : 'Could not load directed anime')
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPopularStaffAnimeLoading(false)
+      })
+    return () => controller.abort()
+  }, [isPopularStaffTool, selectedPopularStaff])
 
   useEffect(() => {
     if (!selectedNodeId || !displayGraph) {
@@ -1143,7 +1208,7 @@ function App() {
       </header>
 
       <div
-        className={`workspace ${leftPanelCollapsed ? 'left-collapsed' : ''} ${rightPanelCollapsed ? 'right-collapsed' : ''}`}
+        className={`workspace ${isPopularStaffTool ? 'popular-staff-workspace' : ''} ${leftPanelCollapsed ? 'left-collapsed' : ''} ${rightPanelCollapsed || (isPopularStaffTool && !selectedPopularStaff) ? 'right-collapsed' : ''}`}
         style={
           {
             '--left-panel-width': `${leftPanelWidth}px`,
@@ -1153,7 +1218,7 @@ function App() {
       >
         <ToolRail activeToolId={activeTool.id} onSelect={setActiveToolId} />
 
-        <aside className={`left-panel panel ${leftPanelCollapsed ? 'collapsed' : ''}`}>
+        <aside className={`left-panel panel ${leftPanelCollapsed || isPopularStaffTool ? 'collapsed' : ''}`}>
           {isRelationshipTool ? (
             <>
               <PanelHeader title="Analyze Anime" />
@@ -1246,6 +1311,19 @@ function App() {
             />
             {showGraphLegend ? <GraphLegend /> : null}
           </section>
+        ) : isPopularStaffTool ? (
+          <PopularStaffPreview
+            kind={popularStaffKind}
+            items={popularStaff}
+            selectedStaff={selectedPopularStaff}
+            loading={popularStaffLoading}
+            error={popularStaffError}
+            onKindChange={setPopularStaffKind}
+            onSelect={(staff) => {
+              setSelectedPopularStaff(staff)
+              setRightPanelCollapsed(false)
+            }}
+          />
         ) : (
           <MockToolPreview tool={activeTool} selectedAnime={selectedAnime} />
         )}
@@ -1303,6 +1381,15 @@ function App() {
                 onReset={resetFilters}
               />
             </>
+          ) : isPopularStaffTool ? (
+            <PopularStaffDetails
+              staff={selectedPopularStaff}
+              kind={popularStaffKind}
+              directedAnime={popularStaffAnime}
+              loadingAnime={popularStaffAnimeLoading}
+              animeError={popularStaffAnimeError}
+              onClose={() => setSelectedPopularStaff(null)}
+            />
           ) : (
             <MockToolDetails tool={activeTool} />
           )}
@@ -1352,6 +1439,144 @@ function ToolRail({
   )
 }
 
+function PopularStaffPreview({
+  kind,
+  items,
+  selectedStaff,
+  loading,
+  error,
+  onKindChange,
+  onSelect,
+}: {
+  kind: PopularStaffKind
+  items: PopularStaff[]
+  selectedStaff: PopularStaff | null
+  loading: boolean
+  error: string | null
+  onKindChange: (kind: PopularStaffKind) => void
+  onSelect: (staff: PopularStaff) => void
+}) {
+  return (
+    <section className="graph-panel popular-staff-panel">
+      <div className="popular-staff-header">
+        <span className="filter-icon blue"><Users size={18} /></span>
+        <div>
+          <h2>Popular {kind}s</h2>
+          <p>Top {POPULAR_STAFF_LIMIT} AniList staff sorted by favorites and filtered to {kind.toLowerCase()} occupations.</p>
+        </div>
+        <label className="staff-kind-control compact">
+          <span>Staff kind</span>
+          <select value={kind} onChange={(event) => onKindChange(event.target.value as PopularStaffKind)}>
+            {POPULAR_STAFF_KINDS.map((option) => (
+              <option key={option} value={option}>{option}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {loading ? <div className="popular-staff-state"><Loader2 className="spin" size={20} /> Loading AniList staff...</div> : null}
+      {!loading && error ? <div className="popular-staff-state error-text">{error}</div> : null}
+      {!loading && !error ? (
+        <div className="popular-staff-list" aria-label={`Top ${POPULAR_STAFF_LIMIT} popular ${kind}s`}>
+          {items.map((staff, index) => (
+            <button
+              key={staff.id}
+              type="button"
+              className={`popular-staff-card popular-staff-row ${selectedStaff?.id === staff.id ? 'active' : ''}`}
+              onClick={() => onSelect(staff)}
+            >
+              <span className="popular-staff-rank">{index + 1}</span>
+              {staff.imageUrl ? <img src={staff.imageUrl} alt="" /> : <span className="popular-staff-avatar"><Users size={22} /></span>}
+              <span className="popular-staff-copy">
+                <strong>{staff.nameFull}</strong>
+                <small>{staffOccupations(staff)}</small>
+              </span>
+              <span className="popular-staff-heat"><Flame size={14} /> {compactNumber(staff.favourites)}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function PopularStaffDetails({
+  staff,
+  kind,
+  directedAnime,
+  loadingAnime,
+  animeError,
+  onClose,
+}: {
+  staff: PopularStaff | null
+  kind: PopularStaffKind
+  directedAnime: PopularStaffAnime[]
+  loadingAnime: boolean
+  animeError: string | null
+  onClose: () => void
+}) {
+  return (
+    <section className="detail-section popular-staff-detail">
+      <div className="panel-header">
+        <h2>Staff Details</h2>
+        {staff ? <button type="button" className="icon-close" aria-label="Close staff details" onClick={onClose}><X size={18} /></button> : null}
+      </div>
+      {!staff ? <div className="detail-empty">Select a {kind.toLowerCase()} to inspect their AniList profile signal.</div> : null}
+      {staff ? (
+        <div className="detail-content">
+          <div className="node-identity">
+            {staff.imageUrl ? <img src={staff.imageUrl} alt="" /> : <span className="node-avatar staff"><Users size={22} /></span>}
+            <span>
+              <h3>{staff.nameFull}</h3>
+              <small>{kind}</small>
+            </span>
+          </div>
+          {staff.nameNative ? (
+            <div>
+              <h4>Native Name</h4>
+              <p className="about-text">{staff.nameNative}</p>
+            </div>
+          ) : null}
+          <div>
+            <h4>Popularity</h4>
+            <p className="popularity"><Flame size={16} /> {compactNumber(staff.favourites)} <small>AniList favorites</small></p>
+          </div>
+          <div>
+            <h4>Occupations</h4>
+            <div className="pill-row">
+              {staff.primaryOccupations.map((occupation) => <span key={occupation} className="role-pill">{occupation}</span>)}
+            </div>
+          </div>
+          <div>
+            <h4>Directed Anime</h4>
+            {loadingAnime ? <div className="loading-row"><Loader2 className="spin" size={16} /> Loading directed anime...</div> : null}
+            {!loadingAnime && animeError ? <p className="error-text">{animeError}</p> : null}
+            {!loadingAnime && !animeError ? (
+              <div className="directed-anime-list">
+                {directedAnime.map((anime) => (
+                  <div key={anime.id} className="directed-anime-row">
+                    <AnimeThumb anime={anime} />
+                    <span>
+                      <strong>{titleFor(anime)}</strong>
+                      <small>{[formatMeta(anime), `${compactNumber(anime.popularity)} popularity`].filter(Boolean).join(' • ')}</small>
+                    </span>
+                    <small>{anime.roles.slice(0, 2).join(', ')}</small>
+                  </div>
+                ))}
+                {directedAnime.length === 0 ? <p className="muted">No directed anime found from AniList staff roles.</p> : null}
+              </div>
+            ) : null}
+          </div>
+          {staff.siteUrl ? (
+            <a className="staff-profile-link" href={staff.siteUrl} target="_blank" rel="noreferrer">
+              Open AniList profile
+            </a>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
 function MockToolControls({ tool, selectedAnime }: { tool: AnalysisToolDefinition; selectedAnime: AnimeSearchResult[] }) {
   const isComparator = tool.id === 'comparator'
   const mockInputs = isComparator
@@ -1397,30 +1622,6 @@ function MockToolControls({ tool, selectedAnime }: { tool: AnalysisToolDefinitio
 }
 
 function MockToolPreview({ tool, selectedAnime }: { tool: AnalysisToolDefinition; selectedAnime: AnimeSearchResult[] }) {
-  if (tool.id === 'staffExplorer') {
-    return (
-      <section className="graph-panel mock-preview-panel">
-        <MockPreviewHeader tool={tool} />
-        <div className="staff-map-preview">
-          <div className="staff-node primary">Yoko Kanno</div>
-          <div className="staff-node top-left">Cowboy Bebop</div>
-          <div className="staff-node top-right">Macross Plus</div>
-          <div className="staff-node bottom-left">Shinichiro Watanabe</div>
-          <div className="staff-node bottom-right">Bones</div>
-          <span className="mock-link link-one" />
-          <span className="mock-link link-two" />
-          <span className="mock-link link-three" />
-          <span className="mock-link link-four" />
-        </div>
-        <div className="timeline-strip">
-          {['1998', '2001', '2012', '2021', '2026'].map((year, index) => (
-            <span key={year} style={{ '--timeline-index': index } as CSSProperties}>{year}</span>
-          ))}
-        </div>
-      </section>
-    )
-  }
-
   const titles = selectedAnime.length > 0 ? selectedAnime.map(titleFor).slice(0, 3) : ['Cowboy Bebop', 'Samurai Champloo', 'Space Dandy']
   return (
     <section className="graph-panel mock-preview-panel">

@@ -113,6 +113,45 @@ query AnimeVoiceActors($id: Int!, $page: Int!, $perPage: Int!) {
 """
 
 
+POPULAR_STAFF_QUERY = """
+query PopularStaff($page: Int!, $perPage: Int!) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { hasNextPage }
+    staff(sort: FAVOURITES_DESC) {
+      id
+      name { full native }
+      image { large medium }
+      siteUrl
+      favourites
+      primaryOccupations
+    }
+  }
+}
+"""
+
+
+STAFF_DIRECTED_ANIME_QUERY = """
+query StaffDirectedAnime($id: Int!, $page: Int!, $perPage: Int!) {
+  Staff(id: $id) {
+    staffMedia(type: ANIME, sort: POPULARITY_DESC, page: $page, perPage: $perPage) {
+      pageInfo { hasNextPage }
+      edges {
+        staffRole
+        node {
+          id
+          title { romaji english native }
+          coverImage { large medium }
+          startDate { year }
+          format
+          popularity
+        }
+      }
+    }
+  }
+}
+"""
+
+
 class AniListClient:
     def __init__(
         self,
@@ -252,6 +291,95 @@ class AniListClient:
                 break
             page += 1
         return cast
+
+    async def fetch_popular_staff(
+        self,
+        kind: str = "Director",
+        limit: int = 50,
+        per_page: int = 50,
+        max_pages: int = 40,
+    ) -> list[dict[str, Any]]:
+        popular_staff: list[dict[str, Any]] = []
+        page = 1
+        normalized_kind = kind.casefold()
+        while page <= max_pages and len(popular_staff) < limit:
+            data = await self._graphql(
+                POPULAR_STAFF_QUERY,
+                {"page": page, "perPage": per_page},
+            )
+            connection = data["Page"]
+            for node in connection.get("staff") or []:
+                occupations = [
+                    occupation
+                    for occupation in node.get("primaryOccupations") or []
+                    if isinstance(occupation, str)
+                ]
+                if not any(normalized_kind in occupation.casefold() for occupation in occupations):
+                    continue
+                if not node.get("id"):
+                    continue
+                popular_staff.append(
+                    {
+                        "id": node["id"],
+                        "nameFull": (node.get("name") or {}).get("full") or "Unknown staff",
+                        "nameNative": (node.get("name") or {}).get("native"),
+                        "imageUrl": ((node.get("image") or {}).get("large") or (node.get("image") or {}).get("medium")),
+                        "siteUrl": node.get("siteUrl"),
+                        "favourites": node.get("favourites"),
+                        "primaryOccupations": occupations,
+                    }
+                )
+                if len(popular_staff) >= limit:
+                    break
+            if not (connection.get("pageInfo") or {}).get("hasNextPage"):
+                break
+            page += 1
+        return popular_staff
+
+    async def fetch_staff_directed_anime(
+        self,
+        staff_id: int,
+        role: str = "Director",
+        limit: int = 12,
+        per_page: int = 50,
+        max_pages: int = 4,
+    ) -> list[dict[str, Any]]:
+        anime_by_id: dict[int, dict[str, Any]] = {}
+        page = 1
+        normalized_role = role.casefold()
+        while page <= max_pages and len(anime_by_id) < limit:
+            data = await self._graphql(
+                STAFF_DIRECTED_ANIME_QUERY,
+                {"id": staff_id, "page": page, "perPage": per_page},
+            )
+            staff = data.get("Staff")
+            if not staff:
+                raise AniListError(f"Staff {staff_id} was not found")
+            connection = staff["staffMedia"]
+            for edge in connection.get("edges") or []:
+                staff_role = edge.get("staffRole")
+                if not isinstance(staff_role, str) or normalized_role not in staff_role.casefold():
+                    continue
+                media = edge.get("node") or {}
+                anime_id = media.get("id")
+                if not anime_id:
+                    continue
+                normalized = anime_by_id.get(anime_id)
+                if not normalized:
+                    normalized = self._normalize_anime(media)
+                    normalized["popularity"] = media.get("popularity")
+                    normalized["roles"] = []
+                    anime_by_id[anime_id] = normalized
+                normalized["roles"].append(staff_role)
+            if len(anime_by_id) >= limit or not (connection.get("pageInfo") or {}).get("hasNextPage"):
+                break
+            page += 1
+
+        return sorted(
+            anime_by_id.values(),
+            key=lambda anime: anime.get("popularity") or 0,
+            reverse=True,
+        )[:limit]
 
     def _normalize_anime(self, media: dict[str, Any]) -> dict[str, Any]:
         title = media.get("title") or {}
