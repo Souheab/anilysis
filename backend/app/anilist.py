@@ -28,6 +28,36 @@ query SearchAnime($search: String!, $page: Int!, $perPage: Int!) {
 }
 """
 
+SEARCH_STAFF_QUERY = """
+query SearchStaff($search: String!, $page: Int!, $perPage: Int!) {
+  Page(page: $page, perPage: $perPage) {
+    staff(search: $search) {
+      id
+      name { full native }
+      image { large medium }
+      siteUrl
+      favourites
+      primaryOccupations
+    }
+  }
+}
+"""
+
+
+SEARCH_STUDIO_QUERY = """
+query SearchStudio($search: String!, $page: Int!, $perPage: Int!) {
+  Page(page: $page, perPage: $perPage) {
+    studios(search: $search) {
+      id
+      name
+      siteUrl
+      favourites
+      isAnimationStudio
+    }
+  }
+}
+"""
+
 
 ANIME_METADATA_QUERY = """
 query AnimeMetadata($id: Int!) {
@@ -153,6 +183,100 @@ query StaffDirectedAnime($id: Int!, $page: Int!, $perPage: Int!) {
 """
 
 
+STAFF_ENTITY_DETAIL_QUERY = """
+query StaffEntityDetail($id: Int!, $page: Int!, $perPage: Int!) {
+  Staff(id: $id) {
+    id
+    name { full native }
+    image { large medium }
+    siteUrl
+    favourites
+    primaryOccupations
+    staffMedia(type: ANIME, sort: POPULARITY_DESC, page: $page, perPage: $perPage) {
+      pageInfo { hasNextPage }
+      edges {
+        staffRole
+        node {
+          id
+          title { romaji english native }
+          coverImage { large medium }
+          bannerImage
+          startDate { year }
+          format
+          episodes
+          status
+          description(asHtml: false)
+          siteUrl
+          averageScore
+          popularity
+          favourites
+        }
+      }
+    }
+    characterMedia(sort: POPULARITY_DESC, page: $page, perPage: $perPage) {
+      pageInfo { hasNextPage }
+      edges {
+        characterRole
+        characters {
+          id
+          name { full native }
+        }
+        node {
+          id
+          title { romaji english native }
+          coverImage { large medium }
+          bannerImage
+          startDate { year }
+          format
+          episodes
+          status
+          description(asHtml: false)
+          siteUrl
+          averageScore
+          popularity
+          favourites
+        }
+      }
+    }
+  }
+}
+"""
+
+
+STUDIO_ENTITY_DETAIL_QUERY = """
+query StudioEntityDetail($id: Int!, $page: Int!, $perPage: Int!) {
+  Studio(id: $id) {
+    id
+    name
+    siteUrl
+    favourites
+    isAnimationStudio
+    media(type: ANIME, sort: POPULARITY_DESC, page: $page, perPage: $perPage) {
+      pageInfo { hasNextPage }
+      edges {
+        isMain
+        node {
+          id
+          title { romaji english native }
+          coverImage { large medium }
+          bannerImage
+          startDate { year }
+          format
+          episodes
+          status
+          description(asHtml: false)
+          siteUrl
+          averageScore
+          popularity
+          favourites
+        }
+      }
+    }
+  }
+}
+"""
+
+
 class AniListClient:
     _rate_lock: asyncio.Lock | None = None
     _rate_lock_loop: asyncio.AbstractEventLoop | None = None
@@ -250,6 +374,20 @@ class AniListClient:
     async def search_anime(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
         data = await self._graphql(SEARCH_ANIME_QUERY, {"search": query, "page": 1, "perPage": limit})
         return [self._normalize_anime(media) for media in data["Page"]["media"]]
+
+    async def search_staff(self, query: str, limit: int = 10, voice_actor_only: bool = False) -> list[dict[str, Any]]:
+        data = await self._graphql(SEARCH_STAFF_QUERY, {"search": query, "page": 1, "perPage": limit})
+        results = [self._normalize_staff(node) for node in data["Page"]["staff"] if node.get("id")]
+        if voice_actor_only:
+            results = [
+                staff for staff in results
+                if any("voice actor" in occupation.casefold() for occupation in staff.get("primaryOccupations") or [])
+            ]
+        return results
+
+    async def search_studios(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+        data = await self._graphql(SEARCH_STUDIO_QUERY, {"search": query, "page": 1, "perPage": limit})
+        return [self._normalize_studio(node) for node in data["Page"]["studios"] if node.get("id")]
 
     async def fetch_anime(self, anime_id: int) -> dict[str, Any]:
         data = await self._graphql(ANIME_METADATA_QUERY, {"id": anime_id})
@@ -435,6 +573,84 @@ class AniListClient:
             reverse=True,
         )[:limit]
 
+    async def fetch_staff_entity(self, staff_id: int, voice_actor: bool = False, per_page: int = 25, max_pages: int = 3) -> dict[str, Any]:
+        detail: dict[str, Any] | None = None
+        anime_by_id: dict[int, dict[str, Any]] = {}
+        page = 1
+        connection_name = "characterMedia" if voice_actor else "staffMedia"
+        while page <= max_pages:
+            data = await self._graphql(
+                STAFF_ENTITY_DETAIL_QUERY,
+                {"id": staff_id, "page": page, "perPage": per_page},
+            )
+            staff = data.get("Staff")
+            if not staff:
+                raise AniListError(f"Staff {staff_id} was not found")
+            if detail is None:
+                detail = self._normalize_staff(staff)
+            connection = staff.get(connection_name) or {}
+            for edge in connection.get("edges") or []:
+                media = edge.get("node") or {}
+                anime_id = media.get("id")
+                if not anime_id:
+                    continue
+                normalized = anime_by_id.get(anime_id)
+                if normalized is None:
+                    normalized = self._normalize_related_anime(media)
+                    anime_by_id[anime_id] = normalized
+                if voice_actor:
+                    for character in edge.get("characters") or []:
+                        name = (character.get("name") or {}).get("full") or (character.get("name") or {}).get("native")
+                        if name:
+                            normalized["roles"].append(name)
+                else:
+                    role = edge.get("staffRole")
+                    if isinstance(role, str) and role.strip():
+                        normalized["roles"].append(role.strip())
+            if not (connection.get("pageInfo") or {}).get("hasNextPage"):
+                break
+            page += 1
+
+        if detail is None:
+            raise AniListError(f"Staff {staff_id} was not found")
+        detail["relatedAnime"] = self._sorted_related_anime(anime_by_id)
+        return detail
+
+    async def fetch_studio_entity(self, studio_id: int, per_page: int = 25, max_pages: int = 3) -> dict[str, Any]:
+        detail: dict[str, Any] | None = None
+        anime_by_id: dict[int, dict[str, Any]] = {}
+        page = 1
+        while page <= max_pages:
+            data = await self._graphql(
+                STUDIO_ENTITY_DETAIL_QUERY,
+                {"id": studio_id, "page": page, "perPage": per_page},
+            )
+            studio = data.get("Studio")
+            if not studio:
+                raise AniListError(f"Studio {studio_id} was not found")
+            if detail is None:
+                detail = self._normalize_studio(studio)
+            connection = studio.get("media") or {}
+            for edge in connection.get("edges") or []:
+                media = edge.get("node") or {}
+                anime_id = media.get("id")
+                if not anime_id:
+                    continue
+                normalized = anime_by_id.get(anime_id)
+                if normalized is None:
+                    normalized = self._normalize_related_anime(media)
+                    anime_by_id[anime_id] = normalized
+                normalized["isMain"] = bool(edge.get("isMain"))
+                normalized["roles"] = ["Main studio" if edge.get("isMain") else "Studio"]
+            if not (connection.get("pageInfo") or {}).get("hasNextPage"):
+                break
+            page += 1
+
+        if detail is None:
+            raise AniListError(f"Studio {studio_id} was not found")
+        detail["relatedAnime"] = self._sorted_related_anime(anime_by_id)
+        return detail
+
     def _normalize_anime(self, media: dict[str, Any]) -> dict[str, Any]:
         title = media.get("title") or {}
         cover = media.get("coverImage") or {}
@@ -456,3 +672,43 @@ class AniListClient:
             "popularity": media.get("popularity"),
             "favourites": media.get("favourites"),
         }
+
+    def _normalize_staff(self, node: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": node["id"],
+            "nameFull": (node.get("name") or {}).get("full") or "Unknown staff",
+            "nameNative": (node.get("name") or {}).get("native"),
+            "imageUrl": ((node.get("image") or {}).get("large") or (node.get("image") or {}).get("medium")),
+            "siteUrl": node.get("siteUrl"),
+            "favourites": node.get("favourites"),
+            "primaryOccupations": [
+                occupation for occupation in node.get("primaryOccupations") or []
+                if isinstance(occupation, str)
+            ],
+        }
+
+    def _normalize_studio(self, node: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": node["id"],
+            "name": node.get("name") or "Unknown studio",
+            "siteUrl": node.get("siteUrl"),
+            "favourites": node.get("favourites"),
+            "isAnimationStudio": node.get("isAnimationStudio"),
+        }
+
+    def _normalize_related_anime(self, media: dict[str, Any]) -> dict[str, Any]:
+        normalized = self._normalize_anime(media)
+        return {
+            **normalized,
+            "roles": [],
+            "isMain": None,
+        }
+
+    def _sorted_related_anime(self, anime_by_id: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
+        for anime in anime_by_id.values():
+            anime["roles"] = sorted(set(anime.get("roles") or []))
+        return sorted(
+            anime_by_id.values(),
+            key=lambda anime: (anime.get("popularity") or 0, anime.get("averageScore") or 0),
+            reverse=True,
+        )

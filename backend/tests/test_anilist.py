@@ -54,6 +54,77 @@ async def test_search_anime_normalizes_results(httpx_mock):
 
 
 @pytest.mark.asyncio
+async def test_search_staff_normalizes_results(httpx_mock):
+    httpx_mock.add_response(
+        url=ANILIST_ENDPOINT,
+        json={
+            "data": {
+                "Page": {
+                    "staff": [
+                        {
+                            "id": 9,
+                            "name": {"full": "Sayo Yamamoto", "native": "山本沙代"},
+                            "image": {"large": "staff.jpg", "medium": None},
+                            "siteUrl": "https://anilist.co/staff/9",
+                            "favourites": 1000,
+                            "primaryOccupations": ["Director"],
+                        }
+                    ]
+                }
+            }
+        },
+    )
+
+    results = await anilist_client().search_staff("sayo")
+
+    assert results == [
+        {
+            "id": 9,
+            "nameFull": "Sayo Yamamoto",
+            "nameNative": "山本沙代",
+            "imageUrl": "staff.jpg",
+            "siteUrl": "https://anilist.co/staff/9",
+            "favourites": 1000,
+            "primaryOccupations": ["Director"],
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_search_studios_normalizes_results(httpx_mock):
+    httpx_mock.add_response(
+        url=ANILIST_ENDPOINT,
+        json={
+            "data": {
+                "Page": {
+                    "studios": [
+                        {
+                            "id": 11,
+                            "name": "Bones",
+                            "siteUrl": "https://anilist.co/studio/11",
+                            "favourites": 5000,
+                            "isAnimationStudio": True,
+                        }
+                    ]
+                }
+            }
+        },
+    )
+
+    results = await anilist_client().search_studios("bones")
+
+    assert results == [
+        {
+            "id": 11,
+            "name": "Bones",
+            "siteUrl": "https://anilist.co/studio/11",
+            "favourites": 5000,
+            "isAnimationStudio": True,
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_anilist_retries_transient_error(httpx_mock):
     httpx_mock.add_response(url=ANILIST_ENDPOINT, status_code=500)
     httpx_mock.add_response(
@@ -141,6 +212,103 @@ async def test_fetch_studios_normalizes_non_paginated_connection(httpx_mock):
             "isMain": True,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_fetch_studio_entity_normalizes_related_anime(httpx_mock):
+    httpx_mock.add_response(
+        url=ANILIST_ENDPOINT,
+        json={
+            "data": {
+                "Studio": {
+                    "id": 11,
+                    "name": "Bones",
+                    "siteUrl": "https://anilist.co/studio/11",
+                    "favourites": 5000,
+                    "isAnimationStudio": True,
+                    "media": {
+                        "pageInfo": {"hasNextPage": False},
+                        "edges": [
+                            {
+                                "isMain": True,
+                                "node": {
+                                    "id": 1,
+                                    "title": {"romaji": "Mob Psycho 100", "english": None, "native": None},
+                                    "coverImage": {"large": "mob.jpg", "medium": None},
+                                    "bannerImage": None,
+                                    "startDate": {"year": 2016},
+                                    "format": "TV",
+                                    "episodes": 12,
+                                    "status": "FINISHED",
+                                    "description": None,
+                                    "siteUrl": None,
+                                    "averageScore": 86,
+                                    "popularity": 20000,
+                                    "favourites": 4000,
+                                },
+                            }
+                        ],
+                    },
+                }
+            }
+        },
+    )
+
+    result = await anilist_client().fetch_studio_entity(11)
+
+    assert result["name"] == "Bones"
+    assert result["relatedAnime"][0]["titleRomaji"] == "Mob Psycho 100"
+    assert result["relatedAnime"][0]["roles"] == ["Main studio"]
+    assert result["relatedAnime"][0]["isMain"] is True
+
+
+@pytest.mark.asyncio
+async def test_fetch_staff_entity_uses_character_media_for_voice_actor(httpx_mock):
+    httpx_mock.add_response(
+        url=ANILIST_ENDPOINT,
+        json={
+            "data": {
+                "Staff": {
+                    "id": 22,
+                    "name": {"full": "Kouichi Yamadera", "native": None},
+                    "image": {"large": "actor.jpg", "medium": None},
+                    "siteUrl": "https://anilist.co/staff/22",
+                    "favourites": 9000,
+                    "primaryOccupations": ["Voice Actor"],
+                    "staffMedia": {"pageInfo": {"hasNextPage": False}, "edges": []},
+                    "characterMedia": {
+                        "pageInfo": {"hasNextPage": False},
+                        "edges": [
+                            {
+                                "characterRole": "MAIN",
+                                "characters": [{"id": 1, "name": {"full": "Spike Spiegel", "native": None}}],
+                                "node": {
+                                    "id": 1,
+                                    "title": {"romaji": "Cowboy Bebop", "english": None, "native": None},
+                                    "coverImage": {},
+                                    "bannerImage": None,
+                                    "startDate": {"year": 1998},
+                                    "format": "TV",
+                                    "episodes": 26,
+                                    "status": "FINISHED",
+                                    "description": None,
+                                    "siteUrl": None,
+                                    "averageScore": 86,
+                                    "popularity": 30000,
+                                    "favourites": 7000,
+                                },
+                            }
+                        ],
+                    },
+                }
+            }
+        },
+    )
+
+    result = await anilist_client().fetch_staff_entity(22, voice_actor=True)
+
+    assert result["nameFull"] == "Kouichi Yamadera"
+    assert result["relatedAnime"][0]["roles"] == ["Spike Spiegel"]
 
 
 @pytest.mark.asyncio

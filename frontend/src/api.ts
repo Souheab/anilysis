@@ -145,6 +145,57 @@ export interface NodeDetail {
   connectionCounts: ConnectionCounts
 }
 
+export type EntityType = 'anime' | 'staff' | 'studio' | 'voiceActor'
+
+export interface EntitySearchResult {
+  id: number
+  type: EntityType
+  label: string
+  subtitle?: string | null
+  imageUrl?: string | null
+  siteUrl?: string | null
+}
+
+export interface RelatedAnimeSummary extends AnimeSearchResult {
+  averageScore?: number | null
+  popularity?: number | null
+  favourites?: number | null
+  roles: string[]
+  isMain?: boolean | null
+}
+
+export interface EntitySummary {
+  id: number
+  type: EntityType
+  label: string
+  subtitle?: string | null
+  imageUrl?: string | null
+  siteUrl?: string | null
+  favourites?: number | null
+  metadata: Record<string, unknown>
+  relatedAnime: RelatedAnimeSummary[]
+}
+
+export interface ComparisonMetricRow {
+  key: string
+  label: string
+  leftValue: string
+  rightValue: string
+  leftRaw?: number | string | null
+  rightRaw?: number | string | null
+  winner: 'left' | 'right' | 'tie' | 'neutral'
+  higherIsBetter?: boolean | null
+}
+
+export interface EntityCompareResponse {
+  type: EntityType
+  left: EntitySummary
+  right: EntitySummary
+  metrics: ComparisonMetricRow[]
+  overlap: RelatedAnimeSummary[]
+  notes: string[]
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -166,6 +217,11 @@ export function searchAnime(query: string, signal?: AbortSignal) {
   return request<AnimeSearchResult[]>(`/api/search/anime?q=${encodeURIComponent(query)}`, { signal })
 }
 
+export function searchEntities(type: EntityType, query: string, signal?: AbortSignal) {
+  const params = new URLSearchParams({ type, q: query })
+  return request<EntitySearchResult[]>(`/api/search/entities?${params.toString()}`, { signal })
+}
+
 export function fetchPopularStaff(kind = 'Director', limit = 50, signal?: AbortSignal) {
   const params = new URLSearchParams({ kind, limit: String(limit) })
   return request<PopularStaff[]>(`/api/staff/popular?${params.toString()}`, { signal })
@@ -184,6 +240,13 @@ export function compareAnime(
   return request<CompareResponse>('/api/compare', {
     method: 'POST',
     body: JSON.stringify({ animeIds, roleFilters, ...popularityFilters }),
+  })
+}
+
+export function compareEntities(type: EntityType, leftId: number, rightId: number) {
+  return request<EntityCompareResponse>('/api/entities/compare', {
+    method: 'POST',
+    body: JSON.stringify({ type, leftId, rightId }),
   })
 }
 

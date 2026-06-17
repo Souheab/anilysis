@@ -9,6 +9,10 @@ from app.schemas import (
     AnimeSearchResult,
     CompareRequest,
     CompareResponse,
+    EntityCompareRequest,
+    EntityCompareResponse,
+    EntitySearchResult,
+    EntityType,
     GraphRequest,
     GraphResponse,
     NodeDetail,
@@ -31,6 +35,15 @@ def health() -> dict[str, str]:
 @router.get("/search/anime", response_model=list[AnimeSearchResult])
 async def search_anime(q: str, session: Session = Depends(get_session)) -> list[AnimeSearchResult]:
     return await cache_service.search_anime(session, q)
+
+
+@router.get("/search/entities", response_model=list[EntitySearchResult])
+async def search_entities(
+    type: EntityType,
+    q: str,
+    session: Session = Depends(get_session),
+) -> list[EntitySearchResult]:
+    return await cache_service.search_entities(session, type, q)
 
 
 @router.get("/staff/popular", response_model=list[PopularStaff])
@@ -58,6 +71,11 @@ async def refresh_anime(anime_id: int, session: Session = Depends(get_session)) 
 @router.get("/anime/{anime_id}", response_model=AnimeDetail)
 def get_anime(anime_id: int, session: Session = Depends(get_session)) -> AnimeDetail:
     return anime_to_detail(cache_service.get_cached_anime(session, anime_id))
+
+
+@router.post("/entities/compare", response_model=EntityCompareResponse)
+async def compare_entities(request: EntityCompareRequest, session: Session = Depends(get_session)) -> EntityCompareResponse:
+    return await cache_service.compare_entities(session, request.type, request.leftId, request.rightId)
 
 
 @router.post("/compare", response_model=CompareResponse)

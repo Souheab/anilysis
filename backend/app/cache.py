@@ -10,7 +10,17 @@ from sqlmodel import Session, delete, select
 
 from app.anilist import AniListClient, AniListError
 from app.models import ApiCacheEntry, Anime, AnimeStaffRole, AnimeStudio, AnimeVoiceActorRole, Staff, Studio, VoiceActor, utc_now
-from app.schemas import AnimeDetail, AnimeSearchResult, RefreshResponse
+from app.schemas import (
+    AnimeDetail,
+    AnimeSearchResult,
+    ComparisonMetricRow,
+    EntityCompareResponse,
+    EntitySearchResult,
+    EntitySummary,
+    EntityType,
+    RefreshResponse,
+    RelatedAnimeSummary,
+)
 from app.scoring import role_is_included, score_role, studio_weight
 
 
@@ -18,6 +28,7 @@ CACHE_TTL = timedelta(days=7)
 SEARCH_CACHE_TTL = timedelta(minutes=30)
 POPULAR_STAFF_CACHE_TTL = timedelta(hours=12)
 STAFF_ANIME_CACHE_TTL = timedelta(hours=12)
+ENTITY_CACHE_TTL = timedelta(hours=12)
 
 
 class ApiResponseCache:
@@ -82,6 +93,60 @@ class AnimeCacheService:
         session.commit()
         return [AnimeSearchResult(**item) for item in results]
 
+    async def search_entities(self, session: Session, entity_type: EntityType, query: str) -> list[EntitySearchResult]:
+        normalized_query = query.strip()
+        if len(normalized_query) < 2:
+            return []
+        if entity_type == "anime":
+            anime = await self.search_anime(session, normalized_query)
+            return [
+                EntitySearchResult(
+                    id=item.id,
+                    type="anime",
+                    label=item.titleEnglish or item.titleRomaji,
+                    subtitle=" • ".join(str(value) for value in [item.format, item.year] if value),
+                    imageUrl=item.coverImageUrl,
+                )
+                for item in anime
+            ]
+        try:
+            if entity_type == "studio":
+                results = await self.api_cache.get_or_fetch_json(
+                    session,
+                    f"anilist:search_entity:studio:{normalized_query.casefold()}",
+                    SEARCH_CACHE_TTL,
+                    lambda: self.client.search_studios(normalized_query),
+                )
+                return [
+                    EntitySearchResult(
+                        id=item["id"],
+                        type="studio",
+                        label=item["name"],
+                        subtitle="Animation studio" if item.get("isAnimationStudio") else "Studio",
+                        siteUrl=item.get("siteUrl"),
+                    )
+                    for item in results
+                ]
+            results = await self.api_cache.get_or_fetch_json(
+                session,
+                f"anilist:search_entity:{entity_type}:{normalized_query.casefold()}",
+                SEARCH_CACHE_TTL,
+                lambda: self.client.search_staff(normalized_query, voice_actor_only=entity_type == "voiceActor"),
+            )
+            return [
+                EntitySearchResult(
+                    id=item["id"],
+                    type=entity_type,
+                    label=item["nameFull"],
+                    subtitle=" / ".join(item.get("primaryOccupations") or []) or ("Voice Actor" if entity_type == "voiceActor" else "Staff"),
+                    imageUrl=item.get("imageUrl"),
+                    siteUrl=item.get("siteUrl"),
+                )
+                for item in results
+            ]
+        except AniListError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
     async def popular_staff(self, session: Session, kind: str, limit: int) -> list[dict[str, Any]]:
         normalized_kind = kind.strip() or "Director"
         try:
@@ -105,6 +170,22 @@ class AnimeCacheService:
             )
         except AniListError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    async def compare_entities(self, session: Session, entity_type: EntityType, left_id: int, right_id: int) -> EntityCompareResponse:
+        if left_id == right_id:
+            raise HTTPException(status_code=422, detail="leftId and rightId must be different")
+        if entity_type == "anime":
+            await self.ensure_anime_loaded(session, left_id)
+            await self.ensure_anime_loaded(session, right_id)
+            return self._compare_anime_entities(session, left_id, right_id)
+        left = await self._entity_summary(session, entity_type, left_id)
+        right = await self._entity_summary(session, entity_type, right_id)
+        overlap = self._related_overlap(left.relatedAnime, right.relatedAnime)
+        metrics = self._creator_metrics(entity_type, left, right, len(overlap))
+        notes = ["Related anime are sorted by AniList popularity and cached for 12 hours."]
+        if entity_type == "voiceActor":
+            notes.append("Voice actors use AniList staff records with voice-acting character media.")
+        return EntityCompareResponse(type=entity_type, left=left, right=right, metrics=metrics, overlap=overlap, notes=notes)
 
     async def refresh_anime(self, session: Session, anime_id: int, force: bool = True) -> RefreshResponse:
         anime = await self.ensure_anime_loaded(session, anime_id, force=force)
@@ -270,6 +351,230 @@ class AnimeCacheService:
         anime.updated_at = utc_now()
         session.add(anime)
         return anime
+
+    async def _entity_summary(self, session: Session, entity_type: EntityType, entity_id: int) -> EntitySummary:
+        try:
+            if entity_type == "studio":
+                data = await self.api_cache.get_or_fetch_json(
+                    session,
+                    f"anilist:entity:studio:{entity_id}",
+                    ENTITY_CACHE_TTL,
+                    lambda: self.client.fetch_studio_entity(entity_id),
+                )
+                related = self._related_anime_summaries(data.get("relatedAnime") or [])
+                return EntitySummary(
+                    id=data["id"],
+                    type="studio",
+                    label=data["name"],
+                    subtitle="Animation studio" if data.get("isAnimationStudio") else "Studio",
+                    siteUrl=data.get("siteUrl"),
+                    favourites=data.get("favourites"),
+                    metadata={"isAnimationStudio": data.get("isAnimationStudio")},
+                    relatedAnime=related,
+                )
+            data = await self.api_cache.get_or_fetch_json(
+                session,
+                f"anilist:entity:{entity_type}:{entity_id}",
+                ENTITY_CACHE_TTL,
+                lambda: self.client.fetch_staff_entity(entity_id, voice_actor=entity_type == "voiceActor"),
+            )
+        except AniListError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        related = self._related_anime_summaries(data.get("relatedAnime") or [])
+        return EntitySummary(
+            id=data["id"],
+            type=entity_type,
+            label=data["nameFull"],
+            subtitle=" / ".join(data.get("primaryOccupations") or []) or ("Voice Actor" if entity_type == "voiceActor" else "Staff"),
+            imageUrl=data.get("imageUrl"),
+            siteUrl=data.get("siteUrl"),
+            favourites=data.get("favourites"),
+            metadata={"nameNative": data.get("nameNative"), "primaryOccupations": data.get("primaryOccupations") or []},
+            relatedAnime=related,
+        )
+
+    def _compare_anime_entities(self, session: Session, left_id: int, right_id: int) -> EntityCompareResponse:
+        from app.graph import GraphService
+
+        graph_service = GraphService()
+        left_anime = self.get_cached_anime(session, left_id)
+        right_anime = self.get_cached_anime(session, right_id)
+        comparison = graph_service.compare(session, [left_id, right_id], [], staff_limit=None)
+        left = self._anime_entity_summary(session, left_anime)
+        right = self._anime_entity_summary(session, right_anime)
+        metrics = [
+            self._metric("averageScore", "Average score", left_anime.average_score, right_anime.average_score, suffix="%"),
+            self._metric("popularity", "Popularity", left_anime.popularity, right_anime.popularity),
+            self._metric("favourites", "Favourites", left_anime.favourites, right_anime.favourites),
+            self._metric("year", "Year", left_anime.year, right_anime.year, higher_is_better=None),
+            self._metric("episodes", "Episodes", left_anime.episodes, right_anime.episodes, higher_is_better=None),
+            self._metric("format", "Format", left_anime.format, right_anime.format, higher_is_better=None),
+            self._metric("status", "Status", left_anime.status, right_anime.status, higher_is_better=None),
+            self._metric("staffCount", "Staff count", self._staff_count(session, left_id), self._staff_count(session, right_id)),
+            self._metric("studioCount", "Studio count", self._studio_count(session, left_id), self._studio_count(session, right_id)),
+            self._metric("voiceActorCount", "Voice actor count", self._voice_actor_count(session, left_id), self._voice_actor_count(session, right_id)),
+            self._metric("sharedStaff", "Shared staff", len(comparison.sharedStaff), len(comparison.sharedStaff), higher_is_better=None),
+            self._metric("sharedStudios", "Shared studios", len(comparison.sharedStudios), len(comparison.sharedStudios), higher_is_better=None),
+            self._metric("sharedVoiceActors", "Shared voice actors", len(comparison.sharedVoiceActors), len(comparison.sharedVoiceActors), higher_is_better=None),
+            self._metric("connectionScore", "Connection score", comparison.score, comparison.score, higher_is_better=None),
+        ]
+        overlap = [
+            RelatedAnimeSummary(**anime_to_detail(anime).model_dump())
+            for anime in [left_anime, right_anime]
+        ]
+        notes = ["Shared anime rows show the selected pair; shared staff/studio/voice actor counts come from the relationship analyzer."]
+        return EntityCompareResponse(type="anime", left=left, right=right, metrics=metrics, overlap=overlap, notes=notes)
+
+    def _anime_entity_summary(self, session: Session, anime: Anime) -> EntitySummary:
+        detail = anime_to_detail(anime)
+        return EntitySummary(
+            id=anime.id,
+            type="anime",
+            label=anime.title_english or anime.title_romaji,
+            subtitle=" • ".join(str(value) for value in [anime.format, anime.year] if value),
+            imageUrl=anime.cover_image_url,
+            siteUrl=anime.site_url,
+            favourites=anime.favourites,
+            metadata={
+                **detail.model_dump(mode="json"),
+                "staffCount": self._staff_count(session, anime.id),
+                "studioCount": self._studio_count(session, anime.id),
+                "voiceActorCount": self._voice_actor_count(session, anime.id),
+            },
+            relatedAnime=[
+                RelatedAnimeSummary(
+                    id=anime.id,
+                    titleRomaji=anime.title_romaji,
+                    titleEnglish=anime.title_english,
+                    titleNative=anime.title_native,
+                    coverImageUrl=anime.cover_image_url,
+                    year=anime.year,
+                    format=anime.format,
+                    averageScore=anime.average_score,
+                    popularity=anime.popularity,
+                    favourites=anime.favourites,
+                )
+            ],
+        )
+
+    def _creator_metrics(self, entity_type: EntityType, left: EntitySummary, right: EntitySummary, overlap_count: int) -> list[ComparisonMetricRow]:
+        left_average_score = self._average_numeric(left.relatedAnime, "averageScore")
+        right_average_score = self._average_numeric(right.relatedAnime, "averageScore")
+        left_average_popularity = self._average_numeric(left.relatedAnime, "popularity")
+        right_average_popularity = self._average_numeric(right.relatedAnime, "popularity")
+        metrics = [
+            self._metric("favourites", "Favourites", left.favourites, right.favourites),
+            self._metric("animeCount", "Anime credits", len(left.relatedAnime), len(right.relatedAnime)),
+            self._metric("averageAnimeScore", "Average anime score", left_average_score, right_average_score, suffix="%"),
+            self._metric("averagePopularity", "Average popularity", left_average_popularity, right_average_popularity),
+            self._metric("sharedAnime", "Shared anime", overlap_count, overlap_count, higher_is_better=None),
+            self._metric("mostPopularAnime", "Most popular anime", self._top_anime_label(left.relatedAnime), self._top_anime_label(right.relatedAnime), higher_is_better=None),
+        ]
+        if entity_type == "studio":
+            metrics.insert(2, self._metric("mainStudioCount", "Main-studio credits", self._main_studio_count(left.relatedAnime), self._main_studio_count(right.relatedAnime)))
+        if entity_type == "voiceActor":
+            metrics.insert(2, self._metric("characterCount", "Character roles", self._role_count(left.relatedAnime), self._role_count(right.relatedAnime)))
+        if entity_type == "staff":
+            metrics.insert(2, self._metric("topRoles", "Top roles", self._top_roles(left.relatedAnime), self._top_roles(right.relatedAnime), higher_is_better=None))
+        return metrics
+
+    def _metric(
+        self,
+        key: str,
+        label: str,
+        left: int | float | str | None,
+        right: int | float | str | None,
+        suffix: str = "",
+        higher_is_better: bool | None = True,
+    ) -> ComparisonMetricRow:
+        winner: str = "neutral"
+        if isinstance(left, (int, float)) and isinstance(right, (int, float)) and higher_is_better is not None:
+            if left == right:
+                winner = "tie"
+            elif (left > right) == higher_is_better:
+                winner = "left"
+            else:
+                winner = "right"
+        return ComparisonMetricRow(
+            key=key,
+            label=label,
+            leftValue=self._format_metric_value(left, suffix),
+            rightValue=self._format_metric_value(right, suffix),
+            leftRaw=left,
+            rightRaw=right,
+            winner=winner,
+            higherIsBetter=higher_is_better,
+        )
+
+    def _format_metric_value(self, value: int | float | str | None, suffix: str = "") -> str:
+        if value is None or value == "":
+            return "Unknown"
+        if isinstance(value, float):
+            return f"{value:,.1f}{suffix}"
+        if isinstance(value, int):
+            return f"{value:,}{suffix}"
+        return value
+
+    def _related_anime_summaries(self, items: list[dict[str, Any]]) -> list[RelatedAnimeSummary]:
+        return [
+            RelatedAnimeSummary(
+                id=item["id"],
+                titleRomaji=item["titleRomaji"],
+                titleEnglish=item.get("titleEnglish"),
+                titleNative=item.get("titleNative"),
+                coverImageUrl=item.get("coverImageUrl"),
+                year=item.get("year"),
+                format=item.get("format"),
+                averageScore=item.get("averageScore"),
+                popularity=item.get("popularity"),
+                favourites=item.get("favourites"),
+                roles=item.get("roles") or [],
+                isMain=item.get("isMain"),
+            )
+            for item in items
+        ]
+
+    def _related_overlap(self, left: list[RelatedAnimeSummary], right: list[RelatedAnimeSummary]) -> list[RelatedAnimeSummary]:
+        right_ids = {item.id for item in right}
+        return [item for item in left if item.id in right_ids]
+
+    def _average_numeric(self, anime: list[RelatedAnimeSummary], field: str) -> float | None:
+        values = [getattr(item, field) for item in anime]
+        numeric_values = [value for value in values if isinstance(value, (int, float))]
+        if not numeric_values:
+            return None
+        return round(sum(numeric_values) / len(numeric_values), 1)
+
+    def _top_anime_label(self, anime: list[RelatedAnimeSummary]) -> str | None:
+        if not anime:
+            return None
+        top = max(anime, key=lambda item: item.popularity or 0)
+        return top.titleEnglish or top.titleRomaji
+
+    def _main_studio_count(self, anime: list[RelatedAnimeSummary]) -> int:
+        return sum(1 for item in anime if item.isMain is True)
+
+    def _role_count(self, anime: list[RelatedAnimeSummary]) -> int:
+        return sum(max(1, len(item.roles)) for item in anime)
+
+    def _top_roles(self, anime: list[RelatedAnimeSummary]) -> str | None:
+        counts: dict[str, int] = {}
+        for item in anime:
+            for role in item.roles:
+                counts[role] = counts.get(role, 0) + 1
+        if not counts:
+            return None
+        return " / ".join(role for role, _ in sorted(counts.items(), key=lambda item: (item[1], item[0]), reverse=True)[:3])
+
+    def _staff_count(self, session: Session, anime_id: int) -> int:
+        return len({role.staff_id for role in session.exec(select(AnimeStaffRole).where(AnimeStaffRole.anime_id == anime_id)).all()})
+
+    def _studio_count(self, session: Session, anime_id: int) -> int:
+        return len({role.studio_id for role in session.exec(select(AnimeStudio).where(AnimeStudio.anime_id == anime_id)).all()})
+
+    def _voice_actor_count(self, session: Session, anime_id: int) -> int:
+        return len({role.voice_actor_id for role in session.exec(select(AnimeVoiceActorRole).where(AnimeVoiceActorRole.anime_id == anime_id)).all()})
 
 
 def anime_to_detail(anime: Anime) -> AnimeDetail:

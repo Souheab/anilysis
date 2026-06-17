@@ -33,18 +33,25 @@ import {
 import './App.css'
 import {
   compareAnime,
+  compareEntities,
   DEFAULT_STAFF_POPULARITY_FILTERS,
   fetchGraph,
   fetchNodeDetail,
   fetchPopularStaff,
   fetchStaffDirectedAnime,
   searchAnime,
+  searchEntities,
   type AnimeSearchResult,
+  type ComparisonMetricRow,
   type CompareResponse,
+  type EntityCompareResponse,
+  type EntitySearchResult,
+  type EntityType,
   type GraphResponse,
   type NodeDetail,
   type PopularStaffAnime,
   type PopularStaff,
+  type RelatedAnimeSummary,
   type ScoreBreakdown,
   type SharedStaff,
   type SharedVoiceActor,
@@ -145,7 +152,7 @@ type FilterTemplateId = (typeof FILTER_TEMPLATES)[number]['id']
 type FilterSectionId = 'roles' | 'nodes' | 'edges' | 'favourites' | 'graph'
 type FilterSectionState = Record<FilterSectionId, boolean>
 type ResizePanel = 'left' | 'right'
-type AnalysisToolId = 'relationships' | 'popularStaff'
+type AnalysisToolId = 'relationships' | 'popularStaff' | 'entityCompare'
 type PopularStaffKind = (typeof POPULAR_STAFF_KINDS)[number]['value']
 type AnalysisToolDefinition = {
   id: AnalysisToolId
@@ -172,6 +179,19 @@ const ANALYSIS_TOOLS: AnalysisToolDefinition[] = [
     shortLabel: 'Staff',
     icon: Users,
   },
+  {
+    id: 'entityCompare',
+    label: 'Compare Entities',
+    shortLabel: 'Compare',
+    icon: ArrowRightLeft,
+  },
+]
+
+const ENTITY_TYPE_OPTIONS: { value: EntityType; label: string; icon: LucideIcon }[] = [
+  { value: 'anime', label: 'Anime', icon: Film },
+  { value: 'studio', label: 'Studio', icon: Building2 },
+  { value: 'staff', label: 'Staff', icon: Users },
+  { value: 'voiceActor', label: 'Voice Actor', icon: Mic2 },
 ]
 
 const DEFAULT_LEFT_PANEL_WIDTH = 420
@@ -217,6 +237,21 @@ function popularStaffKindOption(kind: PopularStaffKind) {
 function nodeTypeLabel(type: NodeDetail['type']) {
   if (type === 'voiceActor') return 'Voice Actor'
   return type
+}
+
+function entityTypeLabel(type: EntityType) {
+  return ENTITY_TYPE_OPTIONS.find((option) => option.value === type)?.label ?? 'Entity'
+}
+
+function relatedAnimeTitle(anime: AnimeSearchResult) {
+  return anime.titleEnglish || anime.titleRomaji
+}
+
+function renderEntityIcon(type: EntityType, size: number) {
+  if (type === 'anime') return <Film size={size} />
+  if (type === 'studio') return <Building2 size={size} />
+  if (type === 'staff') return <Users size={size} />
+  return <Mic2 size={size} />
 }
 
 function nodeTypesMatch(left: VisibleNodeTypes, right: VisibleNodeTypes) {
@@ -835,6 +870,12 @@ function App() {
   const [popularStaffAnimeError, setPopularStaffAnimeError] = useState<string | null>(null)
   const [popularStaffLoading, setPopularStaffLoading] = useState(false)
   const [popularStaffError, setPopularStaffError] = useState<string | null>(null)
+  const [entityCompareType, setEntityCompareType] = useState<EntityType>('anime')
+  const [selectedEntities, setSelectedEntities] = useState<[EntitySearchResult | null, EntitySearchResult | null]>([null, null])
+  const [activeEntitySlot, setActiveEntitySlot] = useState<0 | 1>(0)
+  const [entityComparison, setEntityComparison] = useState<EntityCompareResponse | null>(null)
+  const [entityCompareLoading, setEntityCompareLoading] = useState(false)
+  const [entityCompareError, setEntityCompareError] = useState<string | null>(null)
   const [comparison, setComparison] = useState<CompareResponse | null>(null)
   const [graph, setGraph] = useState<GraphResponse | null>(null)
   const [nodeDetail, setNodeDetail] = useState<NodeDetail | null>(null)
@@ -880,8 +921,9 @@ function App() {
   const activeTool = ANALYSIS_TOOLS.find((tool) => tool.id === activeToolId) ?? ANALYSIS_TOOLS[0]
   const isRelationshipTool = activeTool.id === 'relationships'
   const isPopularStaffTool = activeTool.id === 'popularStaff'
+  const isEntityCompareTool = activeTool.id === 'entityCompare'
   const staffDetailsCollapsed = isPopularStaffTool && !selectedPopularStaff
-  const effectiveRightPanelCollapsed = rightPanelCollapsed || staffDetailsCollapsed
+  const effectiveRightPanelCollapsed = rightPanelCollapsed || staffDetailsCollapsed || isEntityCompareTool
   const selectedEdge = useMemo(
     () => displayGraph?.edges.find((edge) => edge.data.id === selectedEdgeId) ?? null,
     [displayGraph, selectedEdgeId],
@@ -904,8 +946,12 @@ function App() {
       return
     }
     const controller = new AbortController()
-    setPopularStaffLoading(true)
-    setPopularStaffError(null)
+    window.queueMicrotask(() => {
+      if (!controller.signal.aborted) {
+        setPopularStaffLoading(true)
+        setPopularStaffError(null)
+      }
+    })
     void fetchPopularStaff(popularStaffKind, POPULAR_STAFF_LIMIT, controller.signal)
       .then((items) => {
         setPopularStaff(items)
@@ -923,15 +969,26 @@ function App() {
 
   useEffect(() => {
     if (!isPopularStaffTool || !selectedPopularStaff) {
-      setPopularStaffAnime([])
-      setPopularStaffAnimeLoading(false)
-      setPopularStaffAnimeError(null)
-      return
+      let cancelled = false
+      window.queueMicrotask(() => {
+        if (!cancelled) {
+          setPopularStaffAnime([])
+          setPopularStaffAnimeLoading(false)
+          setPopularStaffAnimeError(null)
+        }
+      })
+      return () => {
+        cancelled = true
+      }
     }
     const controller = new AbortController()
-    setPopularStaffAnime([])
-    setPopularStaffAnimeLoading(true)
-    setPopularStaffAnimeError(null)
+    window.queueMicrotask(() => {
+      if (!controller.signal.aborted) {
+        setPopularStaffAnime([])
+        setPopularStaffAnimeLoading(true)
+        setPopularStaffAnimeError(null)
+      }
+    })
     void fetchStaffDirectedAnime(selectedPopularStaff.id, popularStaffKindOption(popularStaffKind).role, 12, controller.signal)
       .then(setPopularStaffAnime)
       .catch((requestError) => {
@@ -943,6 +1000,39 @@ function App() {
       })
     return () => controller.abort()
   }, [isPopularStaffTool, popularStaffKind, selectedPopularStaff])
+
+  useEffect(() => {
+    if (!isEntityCompareTool || !selectedEntities[0] || !selectedEntities[1]) {
+      return
+    }
+    const left = selectedEntities[0]
+    const right = selectedEntities[1]
+    let cancelled = false
+    window.queueMicrotask(() => {
+      if (!cancelled) {
+        setEntityCompareLoading(true)
+        setEntityCompareError(null)
+      }
+    })
+    void compareEntities(entityCompareType, left.id, right.id)
+      .then((nextComparison) => {
+        if (cancelled) return
+        setEntityComparison(nextComparison)
+      })
+      .catch((requestError) => {
+        if (cancelled) return
+        setEntityComparison(null)
+        setEntityCompareError(requestError instanceof Error ? requestError.message : 'Comparison failed')
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setEntityCompareLoading(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [entityCompareType, isEntityCompareTool, selectedEntities])
 
   useEffect(() => {
     if (!selectedNodeId || !displayGraph) {
@@ -1034,6 +1124,42 @@ function App() {
     setSelectedEdgeId(null)
     setAnalysisFailed(false)
   }, [])
+
+  const assignEntity = useCallback((entity: EntitySearchResult, slotIndex = activeEntitySlot) => {
+    setEntityCompareError(null)
+    setSelectedEntities((current) => {
+      const otherIndex = slotIndex === 0 ? 1 : 0
+      if (current[otherIndex]?.id === entity.id) {
+        setEntityCompareError(`That ${entityTypeLabel(entityCompareType).toLowerCase()} is already selected.`)
+        return current
+      }
+      const next: [EntitySearchResult | null, EntitySearchResult | null] = [...current]
+      next[slotIndex] = entity
+      setActiveEntitySlot(slotIndex === 0 ? 1 : 0)
+      setEntityComparison(null)
+      return next
+    })
+  }, [activeEntitySlot, entityCompareType])
+
+  const clearEntitySlot = (slotIndex: 0 | 1) => {
+    setSelectedEntities((current) => {
+      const next: [EntitySearchResult | null, EntitySearchResult | null] = [...current]
+      next[slotIndex] = null
+      return next
+    })
+    setActiveEntitySlot(slotIndex)
+    setEntityComparison(null)
+    setEntityCompareError(null)
+  }
+
+  const changeEntityCompareType = (nextType: EntityType) => {
+    setEntityCompareType(nextType)
+    setSelectedEntities([null, null])
+    setActiveEntitySlot(0)
+    setEntityComparison(null)
+    setEntityCompareError(null)
+    setEntityCompareLoading(false)
+  }
 
   const assignAnime = useCallback(
     (anime: AnimeSearchResult, slotIndex = activeSlotIndex) => {
@@ -1221,10 +1347,17 @@ function App() {
     <main className="app-shell">
       <header className="topbar">
         <h1>Anime Analysis</h1>
-        <CommandSearch
-          activeSlotIndex={activeSlotIndex}
-          onSelect={assignAnime}
-        />
+        {isEntityCompareTool ? (
+          <div className="topbar-context">
+            <ArrowRightLeft size={18} />
+            <span>Compare {entityTypeLabel(entityCompareType).toLowerCase()} metrics</span>
+          </div>
+        ) : (
+          <CommandSearch
+            activeSlotIndex={activeSlotIndex}
+            onSelect={assignAnime}
+          />
+        )}
         <div className="topbar-actions">
           <button type="button" className="settings-button" title="Settings" aria-label="Open settings" onClick={() => setSettingsOpen(true)}>
             <Settings size={19} />
@@ -1233,7 +1366,7 @@ function App() {
       </header>
 
       <div
-        className={`workspace ${isPopularStaffTool ? 'popular-staff-workspace' : ''} ${leftPanelCollapsed ? 'left-collapsed' : ''} ${effectiveRightPanelCollapsed ? 'right-collapsed' : ''}`}
+        className={`workspace ${isPopularStaffTool ? 'popular-staff-workspace' : ''} ${isEntityCompareTool ? 'entity-compare-workspace' : ''} ${leftPanelCollapsed ? 'left-collapsed' : ''} ${effectiveRightPanelCollapsed ? 'right-collapsed' : ''}`}
         style={
           {
             '--left-panel-width': `${leftPanelWidth}px`,
@@ -1296,6 +1429,18 @@ function App() {
               <TopSharedStaff items={comparison?.sharedStaff ?? []} onSelect={(staff) => void selectNode(`staff:${staff.staffId}`)} />
               <TopSharedVoiceActors items={comparison?.sharedVoiceActors ?? []} onSelect={(actor) => void selectNode(`voice_actor:${actor.voiceActorId}`)} />
             </>
+          ) : isEntityCompareTool ? (
+            <EntityCompareControls
+              type={entityCompareType}
+              activeSlot={activeEntitySlot}
+              selectedEntities={selectedEntities}
+              loading={entityCompareLoading}
+              error={entityCompareError}
+              onTypeChange={changeEntityCompareType}
+              onActiveSlotChange={setActiveEntitySlot}
+              onSelect={assignEntity}
+              onClear={clearEntitySlot}
+            />
           ) : null}
           <button
             type="button"
@@ -1346,6 +1491,14 @@ function App() {
               setSelectedPopularStaff(staff)
               setRightPanelCollapsed(false)
             }}
+          />
+        ) : isEntityCompareTool ? (
+          <EntityCompareResults
+            type={entityCompareType}
+            selectedEntities={selectedEntities}
+            comparison={entityComparison}
+            loading={entityCompareLoading}
+            error={entityCompareError}
           />
         ) : null}
 
@@ -1455,6 +1608,366 @@ function ToolRail({
         )
       })}
     </nav>
+  )
+}
+
+function EntityCompareControls({
+  type,
+  activeSlot,
+  selectedEntities,
+  loading,
+  error,
+  onTypeChange,
+  onActiveSlotChange,
+  onSelect,
+  onClear,
+}: {
+  type: EntityType
+  activeSlot: 0 | 1
+  selectedEntities: [EntitySearchResult | null, EntitySearchResult | null]
+  loading: boolean
+  error: string | null
+  onTypeChange: (type: EntityType) => void
+  onActiveSlotChange: (slot: 0 | 1) => void
+  onSelect: (entity: EntitySearchResult, slotIndex?: 0 | 1) => void
+  onClear: (slotIndex: 0 | 1) => void
+}) {
+  return (
+    <>
+      <PanelHeader title="Compare" />
+      <div className="entity-compare-controls">
+        <div className="entity-type-tabs" role="tablist" aria-label="Entity type">
+          {ENTITY_TYPE_OPTIONS.map((option) => {
+            const Icon = option.icon
+            const active = option.value === type
+            return (
+              <button
+                key={option.value}
+                type="button"
+                className={active ? 'active' : ''}
+                aria-pressed={active}
+                onClick={() => onTypeChange(option.value)}
+              >
+                <Icon size={15} />
+                <span>{option.label}</span>
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="entity-slots">
+          {[0, 1].map((slotIndex) => (
+            <EntitySlot
+              key={slotIndex}
+              slot={(slotIndex + 1) as 1 | 2}
+              entity={selectedEntities[slotIndex]}
+              active={activeSlot === slotIndex}
+              type={type}
+              onPick={() => onActiveSlotChange(slotIndex as 0 | 1)}
+              onClear={() => onClear(slotIndex as 0 | 1)}
+            />
+          ))}
+        </div>
+
+        <EntitySearchBox key={type} type={type} activeSlot={activeSlot} onSelect={onSelect} />
+
+        {loading ? <div className="loading-row"><Loader2 className="spin" size={16} /> Comparing entities...</div> : null}
+        {error ? (
+          <div className="inline-error">
+            <strong>Error occurred:</strong>
+            <span>{error}</span>
+          </div>
+        ) : null}
+      </div>
+    </>
+  )
+}
+
+function EntitySlot({
+  slot,
+  entity,
+  active,
+  type,
+  onPick,
+  onClear,
+}: {
+  slot: 1 | 2
+  entity: EntitySearchResult | null
+  active: boolean
+  type: EntityType
+  onPick: () => void
+  onClear: () => void
+}) {
+  return (
+    <button type="button" className={`entity-slot ${active ? 'active' : ''}`} onClick={onPick}>
+      <span className="slot-number">{slot}</span>
+      <EntityAvatar entity={entity} type={type} />
+      <span className="slot-copy">
+        <strong>{entity?.label ?? `Add ${entityTypeLabel(type)}`}</strong>
+        <small>{entity?.subtitle || (active ? 'Search will fill this side' : 'Select this side')}</small>
+      </span>
+      {entity ? (
+        <span
+          className="clear-slot"
+          onClick={(event) => {
+            event.stopPropagation()
+            onClear()
+          }}
+        >
+          <X size={16} />
+        </span>
+      ) : null}
+    </button>
+  )
+}
+
+function EntitySearchBox({
+  type,
+  activeSlot,
+  onSelect,
+}: {
+  type: EntityType
+  activeSlot: 0 | 1
+  onSelect: (entity: EntitySearchResult, slotIndex?: 0 | 1) => void
+}) {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<EntitySearchResult[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (query.trim().length < 2) {
+      return
+    }
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => {
+      setLoading(true)
+      setError(null)
+      void searchEntities(type, query.trim(), controller.signal)
+        .then(setResults)
+        .catch((requestError) => {
+          if (controller.signal.aborted) return
+          setError(requestError instanceof Error ? requestError.message : 'Search failed')
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false)
+        })
+    }, 220)
+    return () => {
+      controller.abort()
+      window.clearTimeout(timeout)
+    }
+  }, [query, type])
+
+  const updateQuery = (value: string) => {
+    setQuery(value)
+    if (value.trim().length < 2) {
+      setResults([])
+      setError(null)
+      setLoading(false)
+    }
+  }
+
+  const choose = (entity: EntitySearchResult) => {
+    onSelect(entity, activeSlot)
+    setQuery(entity.label)
+    setResults([])
+  }
+
+  return (
+    <section className="entity-search-card">
+      <label className="entity-search-box">
+        <Search size={17} />
+        <input
+          value={query}
+          onChange={(event) => updateQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && results[0]) {
+              choose(results[0])
+            }
+          }}
+          placeholder={`Search ${entityTypeLabel(type).toLowerCase()}...`}
+        />
+      </label>
+      {loading ? <p className="command-state"><Loader2 className="spin" size={16} /> Searching AniList...</p> : null}
+      {error ? <p className="command-state error-text">{error}</p> : null}
+      {!loading && !error && query.trim().length < 2 ? <p className="command-state">Type at least two characters.</p> : null}
+      <div className="entity-search-results">
+        {results.map((entity) => (
+          <button key={`${entity.type}-${entity.id}`} type="button" className="entity-result-row" onClick={() => choose(entity)}>
+            <EntityAvatar entity={entity} type={type} />
+            <span>
+              <strong>{entity.label}</strong>
+              <small>{entity.subtitle || entityTypeLabel(type)}</small>
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function EntityAvatar({ entity, type }: { entity: EntitySearchResult | null; type: EntityType }) {
+  const fallbackType = entity?.type ?? type
+  if (entity?.imageUrl) {
+    return <img className="entity-avatar" src={entity.imageUrl} alt="" />
+  }
+  return <span className={`entity-avatar fallback ${fallbackType}`}>{renderEntityIcon(fallbackType, 19)}</span>
+}
+
+function EntityCompareResults({
+  type,
+  selectedEntities,
+  comparison,
+  loading,
+  error,
+}: {
+  type: EntityType
+  selectedEntities: [EntitySearchResult | null, EntitySearchResult | null]
+  comparison: EntityCompareResponse | null
+  loading: boolean
+  error: string | null
+}) {
+  const hasSelection = selectedEntities[0] && selectedEntities[1]
+  return (
+    <section className="graph-panel entity-compare-panel">
+      <div className="entity-compare-header">
+        <span className="filter-icon blue"><ArrowRightLeft size={18} /></span>
+        <div>
+          <h2>{entityTypeLabel(type)} Comparison</h2>
+          <p>{hasSelection ? `${selectedEntities[0]?.label} vs ${selectedEntities[1]?.label}` : `Select two ${entityTypeLabel(type).toLowerCase()} entries.`}</p>
+        </div>
+      </div>
+
+      {!hasSelection ? (
+        <div className="entity-compare-empty">
+          <CircleDotDashed size={26} />
+          <span>Choose both sides to compare metrics.</span>
+        </div>
+      ) : null}
+      {hasSelection && loading ? <div className="popular-staff-state"><Loader2 className="spin" size={20} /> Loading comparison...</div> : null}
+      {hasSelection && error ? <div className="popular-staff-state error-text">{error}</div> : null}
+      {comparison && !loading ? (
+        <div className="entity-comparison-layout">
+          <EntitySummaryHeader comparison={comparison} />
+          <ComparisonMetricsTable metrics={comparison.metrics} leftLabel={comparison.left.label} rightLabel={comparison.right.label} />
+          <RelatedAnimeOverlap comparison={comparison} />
+          {comparison.notes.length ? (
+            <div className="entity-notes">
+              {comparison.notes.map((note) => <p key={note}>{note}</p>)}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function EntitySummaryHeader({ comparison }: { comparison: EntityCompareResponse }) {
+  return (
+    <div className="entity-summary-pair">
+      {[comparison.left, comparison.right].map((entity, index) => {
+        return (
+          <article key={`${entity.type}-${entity.id}`} className={`entity-summary-card ${index === 0 ? 'left' : 'right'}`}>
+            {entity.imageUrl ? <img src={entity.imageUrl} alt="" /> : <span className={`entity-avatar fallback ${entity.type}`}>{renderEntityIcon(entity.type, 24)}</span>}
+            <div>
+              <h3>{entity.label}</h3>
+              <small>{entity.subtitle || entityTypeLabel(entity.type)}</small>
+              <span><Flame size={14} /> {compactNumber(entity.favourites)} favourites</span>
+            </div>
+          </article>
+        )
+      })}
+    </div>
+  )
+}
+
+function ComparisonMetricsTable({
+  metrics,
+  leftLabel,
+  rightLabel,
+}: {
+  metrics: ComparisonMetricRow[]
+  leftLabel: string
+  rightLabel: string
+}) {
+  return (
+    <section className="comparison-table" aria-label="Comparison metrics">
+      <div className="comparison-row header">
+        <span>Metric</span>
+        <span>{leftLabel}</span>
+        <span>{rightLabel}</span>
+        <span>Signal</span>
+      </div>
+      {metrics.map((metric) => (
+        <div key={metric.key} className="comparison-row">
+          <strong>{metric.label}</strong>
+          <span className={metric.winner === 'left' ? 'winner' : ''}>{metric.leftValue}</span>
+          <span className={metric.winner === 'right' ? 'winner' : ''}>{metric.rightValue}</span>
+          <ComparisonSignal metric={metric} />
+        </div>
+      ))}
+    </section>
+  )
+}
+
+function ComparisonSignal({ metric }: { metric: ComparisonMetricRow }) {
+  if (metric.winner === 'neutral') {
+    return <span className="signal neutral">Context</span>
+  }
+  if (metric.winner === 'tie') {
+    return <span className="signal tie">Tie</span>
+  }
+  return <span className="signal winner">{metric.winner === 'left' ? 'Left' : 'Right'}</span>
+}
+
+function RelatedAnimeOverlap({ comparison }: { comparison: EntityCompareResponse }) {
+  const leftRelated = comparison.left.relatedAnime.slice(0, 6)
+  const rightRelated = comparison.right.relatedAnime.slice(0, 6)
+  return (
+    <section className="entity-related-section">
+      <div className="section-title compact">
+        <h4>{comparison.type === 'anime' ? 'Selected Anime' : 'Shared Anime'}</h4>
+      </div>
+      {comparison.overlap.length ? (
+        <div className="related-anime-grid overlap">
+          {comparison.overlap.slice(0, 8).map((anime) => <RelatedAnimeCard key={anime.id} anime={anime} />)}
+        </div>
+      ) : (
+        <p className="muted">No shared anime found in the fetched AniList credits.</p>
+      )}
+      {comparison.type !== 'anime' ? (
+        <div className="related-columns">
+          <RelatedAnimeColumn title={comparison.left.label} items={leftRelated} />
+          <RelatedAnimeColumn title={comparison.right.label} items={rightRelated} />
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function RelatedAnimeColumn({ title, items }: { title: string; items: RelatedAnimeSummary[] }) {
+  return (
+    <div className="related-column">
+      <h4>{title}</h4>
+      <div className="directed-anime-list">
+        {items.map((anime) => <RelatedAnimeCard key={anime.id} anime={anime} compact />)}
+        {items.length === 0 ? <p className="muted">No related anime loaded.</p> : null}
+      </div>
+    </div>
+  )
+}
+
+function RelatedAnimeCard({ anime, compact = false }: { anime: RelatedAnimeSummary; compact?: boolean }) {
+  return (
+    <article className={`related-anime-card ${compact ? 'compact' : ''}`}>
+      <AnimeThumb anime={anime} />
+      <span>
+        <strong>{relatedAnimeTitle(anime)}</strong>
+        <small>{[formatMeta(anime), anime.averageScore ? `${anime.averageScore}% score` : null, anime.popularity ? `${compactNumber(anime.popularity)} popularity` : null].filter(Boolean).join(' • ')}</small>
+        {anime.roles.length ? <em>{anime.roles.slice(0, 3).join(', ')}</em> : null}
+      </span>
+    </article>
   )
 }
 

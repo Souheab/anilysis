@@ -26,6 +26,30 @@ class ApiFakeAniListClient:
             }
         ]
 
+    async def search_staff(self, query: str, limit: int = 10, voice_actor_only: bool = False):
+        return [
+            {
+                "id": 10,
+                "nameFull": "Creative Person",
+                "nameNative": None,
+                "imageUrl": "staff.jpg",
+                "siteUrl": "https://anilist.co/staff/10",
+                "favourites": 500,
+                "primaryOccupations": ["Director"] if not voice_actor_only else ["Voice Actor"],
+            }
+        ]
+
+    async def search_studios(self, query: str, limit: int = 10):
+        return [
+            {
+                "id": 20,
+                "name": "Studio Source",
+                "siteUrl": "https://anilist.co/studio/20",
+                "favourites": 1200,
+                "isAnimationStudio": True,
+            }
+        ]
+
     async def fetch_anime(self, anime_id: int):
         return {
             "id": anime_id,
@@ -75,6 +99,68 @@ class ApiFakeAniListClient:
             }
         ]
 
+    async def fetch_staff_entity(self, staff_id: int, voice_actor: bool = False):
+        return {
+            "id": staff_id,
+            "nameFull": "Voice Person" if voice_actor else "Creative Person",
+            "nameNative": None,
+            "imageUrl": "staff.jpg",
+            "siteUrl": f"https://anilist.co/staff/{staff_id}",
+            "favourites": 9000 if voice_actor else 500,
+            "primaryOccupations": ["Voice Actor"] if voice_actor else ["Director"],
+            "relatedAnime": [
+                {
+                    "id": 91,
+                    "titleRomaji": "Popular Credit",
+                    "titleEnglish": None,
+                    "titleNative": None,
+                    "coverImageUrl": None,
+                    "bannerImageUrl": None,
+                    "year": 2022,
+                    "format": "TV",
+                    "episodes": None,
+                    "status": None,
+                    "description": None,
+                    "siteUrl": None,
+                    "averageScore": 85,
+                    "popularity": 3000,
+                    "favourites": 400,
+                    "roles": ["Hero"] if voice_actor else ["Director"],
+                    "isMain": None,
+                }
+            ],
+        }
+
+    async def fetch_studio_entity(self, studio_id: int):
+        return {
+            "id": studio_id,
+            "name": "Studio Source" if studio_id == 20 else "Studio Target",
+            "siteUrl": f"https://anilist.co/studio/{studio_id}",
+            "favourites": 1200 if studio_id == 20 else 1000,
+            "isAnimationStudio": True,
+            "relatedAnime": [
+                {
+                    "id": 91,
+                    "titleRomaji": "Popular Credit",
+                    "titleEnglish": None,
+                    "titleNative": None,
+                    "coverImageUrl": None,
+                    "bannerImageUrl": None,
+                    "year": 2022,
+                    "format": "TV",
+                    "episodes": None,
+                    "status": None,
+                    "description": None,
+                    "siteUrl": None,
+                    "averageScore": 85,
+                    "popularity": 3000,
+                    "favourites": 400,
+                    "roles": ["Main studio"] if studio_id == 20 else ["Studio"],
+                    "isMain": studio_id == 20,
+                }
+            ],
+        }
+
 
 class ApiFakePopularStaffClient:
     def __init__(self) -> None:
@@ -119,6 +205,34 @@ def test_search_endpoint_returns_normalized_results(client: TestClient, monkeypa
 
     assert response.status_code == 200
     assert response.json()[0]["titleRomaji"] == "Source"
+
+
+def test_entity_search_endpoint_returns_studios(client: TestClient, monkeypatch):
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeAniListClient()))
+
+    response = client.get("/api/search/entities", params={"type": "studio", "q": "source"})
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "id": 20,
+            "type": "studio",
+            "label": "Studio Source",
+            "subtitle": "Animation studio",
+            "imageUrl": None,
+            "siteUrl": "https://anilist.co/studio/20",
+        }
+    ]
+
+
+def test_entity_search_endpoint_returns_voice_actors(client: TestClient, monkeypatch):
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeAniListClient()))
+
+    response = client.get("/api/search/entities", params={"type": "voiceActor", "q": "voice"})
+
+    assert response.status_code == 200
+    assert response.json()[0]["type"] == "voiceActor"
+    assert response.json()[0]["subtitle"] == "Voice Actor"
 
 
 def test_popular_staff_endpoint_returns_directors_by_default(client: TestClient, monkeypatch):
@@ -199,6 +313,38 @@ def test_compare_and_graph_endpoints_refresh_missing_cache(client: TestClient, m
     assert graph.json()["nodes"]
     assert any(node["data"]["type"] == "voiceActor" for node in graph.json()["nodes"])
     assert graph.json()["highlightedPath"]
+
+
+def test_entity_compare_endpoint_compares_anime(client: TestClient, monkeypatch):
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeAniListClient()))
+
+    response = client.post("/api/entities/compare", json={"type": "anime", "leftId": 1, "rightId": 2})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["type"] == "anime"
+    assert body["left"]["label"] == "Source"
+    assert any(metric["key"] == "connectionScore" for metric in body["metrics"])
+
+
+def test_entity_compare_endpoint_compares_studios_with_overlap(client: TestClient, monkeypatch):
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeAniListClient()))
+
+    response = client.post("/api/entities/compare", json={"type": "studio", "leftId": 20, "rightId": 21})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["left"]["label"] == "Studio Source"
+    assert body["overlap"][0]["titleRomaji"] == "Popular Credit"
+    assert any(metric["key"] == "mainStudioCount" for metric in body["metrics"])
+
+
+def test_entity_compare_endpoint_validates_duplicate_ids(client: TestClient, monkeypatch):
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeAniListClient()))
+
+    response = client.post("/api/entities/compare", json={"type": "studio", "leftId": 20, "rightId": 20})
+
+    assert response.status_code == 422
 
 
 def test_compare_and_graph_validate_anime_ids(client: TestClient, monkeypatch):

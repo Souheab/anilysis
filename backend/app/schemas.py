@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 NodeType = Literal["anime", "staff", "studio", "voiceActor"]
+EntityType = Literal["anime", "staff", "studio", "voiceActor"]
 MAX_ANALYSIS_ANIME = 6
 
 
@@ -168,3 +169,65 @@ class NodeDetail(BaseModel):
     topRoles: list[NodeTopRole] = Field(default_factory=list)
     relatedConnections: list[RelatedConnection] = Field(default_factory=list)
     connectionCounts: ConnectionCounts = Field(default_factory=ConnectionCounts)
+
+
+class EntitySearchResult(BaseModel):
+    id: int
+    type: EntityType
+    label: str
+    subtitle: str | None = None
+    imageUrl: str | None = None
+    siteUrl: str | None = None
+
+
+class RelatedAnimeSummary(AnimeSearchResult):
+    averageScore: int | None = None
+    popularity: int | None = None
+    favourites: int | None = None
+    roles: list[str] = Field(default_factory=list)
+    isMain: bool | None = None
+
+
+class EntitySummary(BaseModel):
+    id: int
+    type: EntityType
+    label: str
+    subtitle: str | None = None
+    imageUrl: str | None = None
+    siteUrl: str | None = None
+    favourites: int | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    relatedAnime: list[RelatedAnimeSummary] = Field(default_factory=list)
+
+
+class ComparisonMetricRow(BaseModel):
+    key: str
+    label: str
+    leftValue: str
+    rightValue: str
+    leftRaw: float | str | None = None
+    rightRaw: float | str | None = None
+    winner: Literal["left", "right", "tie", "neutral"] = "neutral"
+    higherIsBetter: bool | None = True
+
+
+class EntityCompareRequest(BaseModel):
+    type: EntityType
+    leftId: int
+    rightId: int
+
+    @field_validator("rightId")
+    @classmethod
+    def ids_must_differ(cls, value: int, info) -> int:
+        if info.data.get("leftId") == value:
+            raise ValueError("leftId and rightId must be different")
+        return value
+
+
+class EntityCompareResponse(BaseModel):
+    type: EntityType
+    left: EntitySummary
+    right: EntitySummary
+    metrics: list[ComparisonMetricRow]
+    overlap: list[RelatedAnimeSummary] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
