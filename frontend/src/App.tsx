@@ -382,12 +382,74 @@ function primaryStaffRoleCategory(categories: Set<string> | undefined) {
   return ROLE_FILTERS.find((filter) => categories.has(filter.id))?.id ?? null
 }
 
+function applyMinimumShowEdgeFilter(
+  nodes: GraphResponse['nodes'],
+  edges: GraphResponse['edges'],
+  selectedAnime: AnimeSearchResult[],
+) {
+  const nodesById = new Map(nodes.map((node) => [String(node.data.id), node]))
+  const showNeighborsByNodeId = new Map<string, Set<string>>()
+
+  for (const edge of edges) {
+    const sourceId = String(edge.data.source ?? '')
+    const targetId = String(edge.data.target ?? '')
+    const source = nodesById.get(sourceId)
+    const target = nodesById.get(targetId)
+    if (!source || !target) {
+      continue
+    }
+
+    if (source.data.type === 'anime' && target.data.type !== 'anime') {
+      const neighbors = showNeighborsByNodeId.get(targetId) ?? new Set<string>()
+      neighbors.add(sourceId)
+      showNeighborsByNodeId.set(targetId, neighbors)
+    } else if (target.data.type === 'anime' && source.data.type !== 'anime') {
+      const neighbors = showNeighborsByNodeId.get(sourceId) ?? new Set<string>()
+      neighbors.add(targetId)
+      showNeighborsByNodeId.set(sourceId, neighbors)
+    }
+  }
+
+  const connectorNodeIds = new Set(
+    Array.from(showNeighborsByNodeId.entries())
+      .filter(([, showNodeIds]) => showNodeIds.size >= 2)
+      .map(([nodeId]) => nodeId),
+  )
+  const comparisonNodeIds = new Set(selectedAnimeNodeIds(selectedAnime))
+  const connectedShowNodeIds = new Set<string>()
+
+  for (const edge of edges) {
+    const sourceId = String(edge.data.source ?? '')
+    const targetId = String(edge.data.target ?? '')
+    if (connectorNodeIds.has(sourceId) && nodesById.get(targetId)?.data.type === 'anime') {
+      connectedShowNodeIds.add(targetId)
+    } else if (connectorNodeIds.has(targetId) && nodesById.get(sourceId)?.data.type === 'anime') {
+      connectedShowNodeIds.add(sourceId)
+    }
+  }
+
+  const filteredNodes = nodes.filter((node) => {
+    const nodeId = String(node.data.id)
+    if (node.data.type === 'anime') {
+      return comparisonNodeIds.has(nodeId) || connectedShowNodeIds.has(nodeId)
+    }
+    return connectorNodeIds.has(nodeId)
+  })
+  const visibleNodeIds = new Set(filteredNodes.map((node) => String(node.data.id)))
+
+  return {
+    nodes: filteredNodes,
+    edges: edges.filter((edge) => visibleNodeIds.has(String(edge.data.source)) && visibleNodeIds.has(String(edge.data.target))),
+  }
+}
+
 function filterGraph(
   graph: GraphResponse | null,
   visibleNodeTypes: VisibleNodeTypes,
   activeRoleFilters: string[],
   hideIsolatedNodes: boolean,
   showOnlySharedComparisonNodes: boolean,
+  showOnlyNodesWithMultipleShowEdges: boolean,
   showOnlyMainStudioEdges: boolean,
   highlightAllPaths: boolean,
   edgeFilterRegex: string,
@@ -446,6 +508,13 @@ function filterGraph(
   })
   visibleNodeIds = new Set(nodes.map((node) => String(node.data.id)))
   edges = edges.filter((edge) => visibleNodeIds.has(String(edge.data.source)) && visibleNodeIds.has(String(edge.data.target)))
+
+  if (showOnlyNodesWithMultipleShowEdges) {
+    const filtered = applyMinimumShowEdgeFilter(nodes, edges, selectedAnime)
+    nodes = filtered.nodes
+    edges = filtered.edges
+    visibleNodeIds = new Set(nodes.map((node) => String(node.data.id)))
+  }
 
   if (showOnlySharedComparisonNodes && selectedAnime.length >= MIN_ANALYSIS_ANIME) {
     const comparisonNodeIds = new Set(selectedAnimeNodeIds(selectedAnime))
@@ -671,6 +740,7 @@ function App() {
   const [showEdgeLabels, setShowEdgeLabels] = useState(true)
   const [hideIsolatedNodes, setHideIsolatedNodes] = useState(true)
   const [showOnlySharedComparisonNodes, setShowOnlySharedComparisonNodes] = useState(false)
+  const [showOnlyNodesWithMultipleShowEdges, setShowOnlyNodesWithMultipleShowEdges] = useState(false)
   const [highlightAllPaths, setHighlightAllPaths] = useState(false)
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false)
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false)
@@ -706,6 +776,7 @@ function App() {
         effectiveActiveFilters,
         hideIsolatedNodes,
         showOnlySharedComparisonNodes,
+        showOnlyNodesWithMultipleShowEdges,
         showOnlyMainStudioEdges,
         highlightAllPaths,
         edgeFilterRegex,
@@ -720,6 +791,7 @@ function App() {
       highlightAllPaths,
       showOnlyMainStudioEdges,
       showOnlySharedComparisonNodes,
+      showOnlyNodesWithMultipleShowEdges,
       selectedAnime,
     ],
   )
@@ -966,6 +1038,7 @@ function App() {
     setStaffMinFavourites(DEFAULT_STAFF_POPULARITY_FILTERS.staffMinFavourites)
     setStaffLimit(DEFAULT_STAFF_POPULARITY_FILTERS.staffLimit)
     setShowOnlySharedComparisonNodes(false)
+    setShowOnlyNodesWithMultipleShowEdges(false)
   }
 
   const resetFilters = () => {
@@ -1151,6 +1224,7 @@ function App() {
             showEdgeLabels={showEdgeLabels}
             hideIsolatedNodes={hideIsolatedNodes}
             showOnlySharedComparisonNodes={showOnlySharedComparisonNodes}
+            showOnlyNodesWithMultipleShowEdges={showOnlyNodesWithMultipleShowEdges}
             highlightAllPaths={highlightAllPaths}
             sectionState={filterSections}
             onToggleOpen={() => setFiltersOpen((current) => !current)}
@@ -1168,6 +1242,7 @@ function App() {
             onShowEdgeLabelsChange={setShowEdgeLabels}
             onHideIsolatedNodesChange={setHideIsolatedNodes}
             onShowOnlySharedComparisonNodesChange={setShowOnlySharedComparisonNodes}
+            onShowOnlyNodesWithMultipleShowEdgesChange={setShowOnlyNodesWithMultipleShowEdges}
             onHighlightAllPathsChange={setHighlightAllPaths}
             onSetGraphSettingsActive={setGraphSettingsActive}
             onToggleSection={setFilterSectionOpen}
@@ -1854,6 +1929,7 @@ function RoleFilters({
   showEdgeLabels,
   hideIsolatedNodes,
   showOnlySharedComparisonNodes,
+  showOnlyNodesWithMultipleShowEdges,
   highlightAllPaths,
   sectionState,
   onToggleOpen,
@@ -1870,6 +1946,7 @@ function RoleFilters({
   onShowEdgeLabelsChange,
   onHideIsolatedNodesChange,
   onShowOnlySharedComparisonNodesChange,
+  onShowOnlyNodesWithMultipleShowEdgesChange,
   onHighlightAllPathsChange,
   onSetGraphSettingsActive,
   onToggleSection,
@@ -1889,6 +1966,7 @@ function RoleFilters({
   showEdgeLabels: boolean
   hideIsolatedNodes: boolean
   showOnlySharedComparisonNodes: boolean
+  showOnlyNodesWithMultipleShowEdges: boolean
   highlightAllPaths: boolean
   sectionState: FilterSectionState
   onToggleOpen: () => void
@@ -1905,6 +1983,7 @@ function RoleFilters({
   onShowEdgeLabelsChange: (value: boolean) => void
   onHideIsolatedNodesChange: (value: boolean) => void
   onShowOnlySharedComparisonNodesChange: (value: boolean) => void
+  onShowOnlyNodesWithMultipleShowEdgesChange: (value: boolean) => void
   onHighlightAllPathsChange: (value: boolean) => void
   onSetGraphSettingsActive: (active: boolean) => void
   onToggleSection: (section: FilterSectionId) => void
@@ -2197,6 +2276,18 @@ function RoleFilters({
                   <em>Highlight every visible connection instead of only the shortest path</em>
                 </span>
                 <span className={`switch ${highlightAllPaths ? 'on' : ''}`} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="filter-row graph-setting-row"
+                onClick={() => onShowOnlyNodesWithMultipleShowEdgesChange(!showOnlyNodesWithMultipleShowEdges)}
+              >
+                <ArrowRightLeft size={14} />
+                <span>
+                  <strong>At least 2 show edges</strong>
+                  <em>Only show connector nodes linked to 2 or more anime</em>
+                </span>
+                <span className={`switch ${showOnlyNodesWithMultipleShowEdges ? 'on' : ''}`} aria-hidden="true" />
               </button>
             </div>
           </div>
