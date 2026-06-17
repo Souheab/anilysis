@@ -27,6 +27,7 @@ import {
   X,
   ZoomIn,
   ZoomOut,
+  type LucideIcon,
 } from 'lucide-react'
 
 import './App.css'
@@ -105,11 +106,47 @@ type FilterTemplateId = (typeof FILTER_TEMPLATES)[number]['id']
 type FilterSectionId = 'roles' | 'nodes' | 'edges' | 'favourites' | 'graph'
 type FilterSectionState = Record<FilterSectionId, boolean>
 type ResizePanel = 'left' | 'right'
+type AnalysisToolId = 'relationships' | 'comparator' | 'staffExplorer'
+type AnalysisToolDefinition = {
+  id: AnalysisToolId
+  label: string
+  shortLabel: string
+  description: string
+  status: string
+  icon: LucideIcon
+}
 type RecentComparison = {
   anime: AnimeSearchResult[]
   comparedAt: string
 }
 type GraphEdge = GraphResponse['edges'][number]
+
+const ANALYSIS_TOOLS: AnalysisToolDefinition[] = [
+  {
+    id: 'relationships',
+    label: 'Relationship Visualizer',
+    shortLabel: 'Relations',
+    description: 'Map anime through shared staff, studios, voice actors, and production links.',
+    status: 'Live tool',
+    icon: Network,
+  },
+  {
+    id: 'comparator',
+    label: 'Anime Comparator',
+    shortLabel: 'Compare',
+    description: 'Mock comparison workspace for scores, tags, staff overlap, and audience signals.',
+    status: 'Mockup',
+    icon: ArrowRightLeft,
+  },
+  {
+    id: 'staffExplorer',
+    label: 'Staff Explorer',
+    shortLabel: 'Staff',
+    description: 'Mock staff research workspace for collaborators, timelines, and signature roles.',
+    status: 'Mockup',
+    icon: Users,
+  },
+]
 
 const DEFAULT_LEFT_PANEL_WIDTH = 420
 const DEFAULT_RIGHT_PANEL_WIDTH = 390
@@ -727,6 +764,7 @@ function visibleGraphScore(
 
 function App() {
   const graphRef = useRef<GraphViewHandle | null>(null)
+  const [activeToolId, setActiveToolId] = useState<AnalysisToolId>('relationships')
   const [selectedAnime, setSelectedAnime] = useState<AnimeSearchResult[]>([])
   const [activeSlotIndex, setActiveSlotIndex] = useState(0)
   const [activeFilters, setActiveFilters] = useState(() => ALL_ROLE_IDS)
@@ -797,6 +835,8 @@ function App() {
   )
   const canAnalyze = selectedAnime.length >= MIN_ANALYSIS_ANIME
   const atSelectionLimit = selectedAnime.length >= MAX_COMPARE_ANIME
+  const activeTool = ANALYSIS_TOOLS.find((tool) => tool.id === activeToolId) ?? ANALYSIS_TOOLS[0]
+  const isRelationshipTool = activeTool.id === 'relationships'
   const selectedEdge = useMemo(
     () => displayGraph?.edges.find((edge) => edge.data.id === selectedEdgeId) ?? null,
     [displayGraph, selectedEdgeId],
@@ -1111,56 +1151,64 @@ function App() {
           } as CSSProperties
         }
       >
+        <ToolRail activeToolId={activeTool.id} onSelect={setActiveToolId} />
+
         <aside className={`left-panel panel ${leftPanelCollapsed ? 'collapsed' : ''}`}>
-          <PanelHeader title="Analyze Anime" />
-          <div className="anime-slots">
-            {selectedAnime.length === 0 ? <p className="muted">Add at least one anime to begin analysis</p> : null}
-            {Array.from({ length: selectedAnime.length === 0 ? 1 : selectedAnime.length + (atSelectionLimit ? 0 : 1) }).map((_, index) => (
-              <AnimeSlot
-                key={selectedAnime[index]?.id ?? `empty-${index}`}
-                slot={index + 1}
-                anime={selectedAnime[index] ?? null}
-                active={activeSlotIndex === index}
-                onPick={() => setActiveSlotIndex(index)}
-                onClear={() => clearAnimeSlot(index)}
+          {isRelationshipTool ? (
+            <>
+              <PanelHeader title="Analyze Anime" />
+              <div className="anime-slots">
+                {selectedAnime.length === 0 ? <p className="muted">Add at least one anime to begin analysis</p> : null}
+                {Array.from({ length: selectedAnime.length === 0 ? 1 : selectedAnime.length + (atSelectionLimit ? 0 : 1) }).map((_, index) => (
+                  <AnimeSlot
+                    key={selectedAnime[index]?.id ?? `empty-${index}`}
+                    slot={index + 1}
+                    anime={selectedAnime[index] ?? null}
+                    active={activeSlotIndex === index}
+                    onPick={() => setActiveSlotIndex(index)}
+                    onClear={() => clearAnimeSlot(index)}
+                  />
+                ))}
+              </div>
+
+              <button
+                type="button"
+                className="analysis-button"
+                disabled={!canAnalyze || isComparing}
+                onClick={() => {
+                  void runAnalysis()
+                }}
+              >
+                {analysisButtonIcon}
+                {analysisButtonText}
+              </button>
+
+              {error ? (
+                <div className="inline-error">
+                  <strong>Error occurred:</strong>
+                  <span>{error}</span>
+                </div>
+              ) : null}
+
+              <RecentComparisons
+                items={recentComparisons}
+                open={recentComparisonsOpen}
+                onToggle={() => setRecentComparisonsOpen((current) => !current)}
+                onSelect={restoreRecentComparison}
               />
-            ))}
-          </div>
-
-          <button
-            type="button"
-            className="analysis-button"
-            disabled={!canAnalyze || isComparing}
-            onClick={() => {
-              void runAnalysis()
-            }}
-          >
-            {analysisButtonIcon}
-            {analysisButtonText}
-          </button>
-
-          {error ? (
-            <div className="inline-error">
-              <strong>Error occurred:</strong>
-              <span>{error}</span>
-            </div>
-          ) : null}
-
-          <RecentComparisons
-            items={recentComparisons}
-            open={recentComparisonsOpen}
-            onToggle={() => setRecentComparisonsOpen((current) => !current)}
-            onSelect={restoreRecentComparison}
-          />
-          <ConnectionScore
-            comparison={comparison}
-            graph={displayGraph}
-            selectedAnime={selectedAnime}
-            loading={isComparing}
-            canAnalyze={canAnalyze}
-          />
-          <TopSharedStaff items={comparison?.sharedStaff ?? []} onSelect={(staff) => void selectNode(`staff:${staff.staffId}`)} />
-          <TopSharedVoiceActors items={comparison?.sharedVoiceActors ?? []} onSelect={(actor) => void selectNode(`voice_actor:${actor.voiceActorId}`)} />
+              <ConnectionScore
+                comparison={comparison}
+                graph={displayGraph}
+                selectedAnime={selectedAnime}
+                loading={isComparing}
+                canAnalyze={canAnalyze}
+              />
+              <TopSharedStaff items={comparison?.sharedStaff ?? []} onSelect={(staff) => void selectNode(`staff:${staff.staffId}`)} />
+              <TopSharedVoiceActors items={comparison?.sharedVoiceActors ?? []} onSelect={(actor) => void selectNode(`voice_actor:${actor.voiceActorId}`)} />
+            </>
+          ) : (
+            <MockToolControls tool={activeTool} selectedAnime={selectedAnime} />
+          )}
           <button
             type="button"
             className="panel-resize-handle left"
@@ -1169,34 +1217,38 @@ function App() {
           />
         </aside>
 
-        <section className="graph-panel">
-          <GraphToolbar
-            loading={isComparing}
-            nodeCount={displayGraph?.nodes.length ?? 0}
-            leftPanelCollapsed={leftPanelCollapsed}
-            rightPanelCollapsed={rightPanelCollapsed}
-            showLegend={showGraphLegend}
-            onToggleLeftPanel={() => setLeftPanelCollapsed((current) => !current)}
-            onToggleRightPanel={() => setRightPanelCollapsed((current) => !current)}
-            onToggleLegend={() => setShowGraphLegend((current) => !current)}
-            onZoomIn={() => graphRef.current?.zoomIn()}
-            onZoomOut={() => graphRef.current?.zoomOut()}
-            onReset={() => graphRef.current?.reset()}
-          />
-          <GraphView
-            ref={graphRef}
-            graph={displayGraph}
-            graphLayout={graphLayout}
-            graphSpacing={graphSpacing}
-            showEdgeLabels={showEdgeLabels}
-            wheelSensitivity={wheelSensitivity}
-            selectedNodeId={selectedNodeId}
-            selectedEdgeId={selectedEdgeId}
-            onNodeSelect={selectNode}
-            onEdgeSelect={selectEdge}
-          />
-          {showGraphLegend ? <GraphLegend /> : null}
-        </section>
+        {isRelationshipTool ? (
+          <section className="graph-panel">
+            <GraphToolbar
+              loading={isComparing}
+              nodeCount={displayGraph?.nodes.length ?? 0}
+              leftPanelCollapsed={leftPanelCollapsed}
+              rightPanelCollapsed={rightPanelCollapsed}
+              showLegend={showGraphLegend}
+              onToggleLeftPanel={() => setLeftPanelCollapsed((current) => !current)}
+              onToggleRightPanel={() => setRightPanelCollapsed((current) => !current)}
+              onToggleLegend={() => setShowGraphLegend((current) => !current)}
+              onZoomIn={() => graphRef.current?.zoomIn()}
+              onZoomOut={() => graphRef.current?.zoomOut()}
+              onReset={() => graphRef.current?.reset()}
+            />
+            <GraphView
+              ref={graphRef}
+              graph={displayGraph}
+              graphLayout={graphLayout}
+              graphSpacing={graphSpacing}
+              showEdgeLabels={showEdgeLabels}
+              wheelSensitivity={wheelSensitivity}
+              selectedNodeId={selectedNodeId}
+              selectedEdgeId={selectedEdgeId}
+              onNodeSelect={selectNode}
+              onEdgeSelect={selectEdge}
+            />
+            {showGraphLegend ? <GraphLegend /> : null}
+          </section>
+        ) : (
+          <MockToolPreview tool={activeTool} selectedAnime={selectedAnime} />
+        )}
 
         <aside className={`right-panel panel ${rightPanelCollapsed ? 'collapsed' : ''}`}>
           <button
@@ -1205,49 +1257,55 @@ function App() {
             aria-label="Resize right panel"
             onPointerDown={(event) => startPanelResize('right', event)}
           />
-          <DetailPanel detail={nodeDetail} edge={selectedEdge} graph={displayGraph} loading={isLoadingNode} onClose={() => {
-            setNodeDetail(null)
-            setSelectedNodeId(null)
-            setSelectedEdgeId(null)
-          }} />
-          <RoleFilters
-            open={filtersOpen}
-            activeFilters={activeFilters}
-            roleFiltersEnabled={roleFiltersEnabled}
-            graph={displayGraph}
-            visibleNodeTypes={visibleNodeTypes}
-            nodeTypeFiltersEnabled={nodeTypeFiltersEnabled}
-            showOnlyMainStudioEdges={showOnlyMainStudioEdges}
-            edgeFilterRegex={edgeFilterRegex}
-            staffMinFavourites={staffMinFavourites}
-            staffLimit={staffLimit}
-            showEdgeLabels={showEdgeLabels}
-            hideIsolatedNodes={hideIsolatedNodes}
-            showOnlySharedComparisonNodes={showOnlySharedComparisonNodes}
-            showOnlyNodesWithMultipleShowEdges={showOnlyNodesWithMultipleShowEdges}
-            highlightAllPaths={highlightAllPaths}
-            sectionState={filterSections}
-            onToggleOpen={() => setFiltersOpen((current) => !current)}
-            onApplyTemplate={applyFilterTemplate}
-            onToggle={toggleFilter}
-            onSetAllRoles={setAllRoleFilters}
-            onToggleNodeType={toggleNodeType}
-            onSetAllNodeTypes={setAllNodeTypes}
-            onShowOnlyMainStudioEdgesChange={setShowOnlyMainStudioEdgesFilter}
-            onEdgeFilterRegexChange={setEdgeFilterRegex}
-            onMinFavouritesChange={setStaffMinFavourites}
-            onStaffLimitChange={setStaffLimit}
-            onSetPopularityFiltersActive={setPopularityFiltersActive}
-            onSetEdgeTypeFiltersActive={setEdgeTypeFiltersActive}
-            onShowEdgeLabelsChange={setShowEdgeLabels}
-            onHideIsolatedNodesChange={setHideIsolatedNodes}
-            onShowOnlySharedComparisonNodesChange={setShowOnlySharedComparisonNodes}
-            onShowOnlyNodesWithMultipleShowEdgesChange={setShowOnlyNodesWithMultipleShowEdges}
-            onHighlightAllPathsChange={setHighlightAllPaths}
-            onSetGraphSettingsActive={setGraphSettingsActive}
-            onToggleSection={setFilterSectionOpen}
-            onReset={resetFilters}
-          />
+          {isRelationshipTool ? (
+            <>
+              <DetailPanel detail={nodeDetail} edge={selectedEdge} graph={displayGraph} loading={isLoadingNode} onClose={() => {
+                setNodeDetail(null)
+                setSelectedNodeId(null)
+                setSelectedEdgeId(null)
+              }} />
+              <RoleFilters
+                open={filtersOpen}
+                activeFilters={activeFilters}
+                roleFiltersEnabled={roleFiltersEnabled}
+                graph={displayGraph}
+                visibleNodeTypes={visibleNodeTypes}
+                nodeTypeFiltersEnabled={nodeTypeFiltersEnabled}
+                showOnlyMainStudioEdges={showOnlyMainStudioEdges}
+                edgeFilterRegex={edgeFilterRegex}
+                staffMinFavourites={staffMinFavourites}
+                staffLimit={staffLimit}
+                showEdgeLabels={showEdgeLabels}
+                hideIsolatedNodes={hideIsolatedNodes}
+                showOnlySharedComparisonNodes={showOnlySharedComparisonNodes}
+                showOnlyNodesWithMultipleShowEdges={showOnlyNodesWithMultipleShowEdges}
+                highlightAllPaths={highlightAllPaths}
+                sectionState={filterSections}
+                onToggleOpen={() => setFiltersOpen((current) => !current)}
+                onApplyTemplate={applyFilterTemplate}
+                onToggle={toggleFilter}
+                onSetAllRoles={setAllRoleFilters}
+                onToggleNodeType={toggleNodeType}
+                onSetAllNodeTypes={setAllNodeTypes}
+                onShowOnlyMainStudioEdgesChange={setShowOnlyMainStudioEdgesFilter}
+                onEdgeFilterRegexChange={setEdgeFilterRegex}
+                onMinFavouritesChange={setStaffMinFavourites}
+                onStaffLimitChange={setStaffLimit}
+                onSetPopularityFiltersActive={setPopularityFiltersActive}
+                onSetEdgeTypeFiltersActive={setEdgeTypeFiltersActive}
+                onShowEdgeLabelsChange={setShowEdgeLabels}
+                onHideIsolatedNodesChange={setHideIsolatedNodes}
+                onShowOnlySharedComparisonNodesChange={setShowOnlySharedComparisonNodes}
+                onShowOnlyNodesWithMultipleShowEdgesChange={setShowOnlyNodesWithMultipleShowEdges}
+                onHighlightAllPathsChange={setHighlightAllPaths}
+                onSetGraphSettingsActive={setGraphSettingsActive}
+                onToggleSection={setFilterSectionOpen}
+                onReset={resetFilters}
+              />
+            </>
+          ) : (
+            <MockToolDetails tool={activeTool} />
+          )}
         </aside>
       </div>
       <SettingsModal
@@ -1261,6 +1319,201 @@ function App() {
         onClose={() => setSettingsOpen(false)}
       />
     </main>
+  )
+}
+
+function ToolRail({
+  activeToolId,
+  onSelect,
+}: {
+  activeToolId: AnalysisToolId
+  onSelect: (toolId: AnalysisToolId) => void
+}) {
+  return (
+    <nav className="tool-rail" aria-label="Analysis tools">
+      {ANALYSIS_TOOLS.map((tool) => {
+        const Icon = tool.icon
+        const active = tool.id === activeToolId
+        return (
+          <button
+            key={tool.id}
+            type="button"
+            className={`tool-rail-button ${active ? 'active' : ''}`}
+            aria-pressed={active}
+            title={tool.label}
+            onClick={() => onSelect(tool.id)}
+          >
+            <Icon size={20} />
+            <span>{tool.shortLabel}</span>
+          </button>
+        )
+      })}
+    </nav>
+  )
+}
+
+function MockToolControls({ tool, selectedAnime }: { tool: AnalysisToolDefinition; selectedAnime: AnimeSearchResult[] }) {
+  const isComparator = tool.id === 'comparator'
+  const mockInputs = isComparator
+    ? ['Primary anime', 'Comparison anime', 'Optional benchmark']
+    : ['Staff name', 'Role focus', 'Era range']
+
+  return (
+    <div className="mock-control-panel">
+      <PanelHeader title={tool.label} />
+      <div className="tool-summary">
+        <span>{tool.status}</span>
+        <p>{tool.description}</p>
+      </div>
+
+      <div className="mock-input-group">
+        {mockInputs.map((label, index) => (
+          <label key={label} className="mock-input-row">
+            <span>{label}</span>
+            <input
+              readOnly
+              value={
+                isComparator
+                  ? selectedAnime[index] ? titleFor(selectedAnime[index]) : ''
+                  : index === 0 ? 'Yoko Kanno' : index === 1 ? 'Music + direction links' : '1998 - 2026'
+              }
+              placeholder={isComparator ? 'Use top search to add anime' : label}
+            />
+          </label>
+        ))}
+      </div>
+
+      <button type="button" className="analysis-button mock-action" disabled>
+        {isComparator ? <ArrowRightLeft size={17} /> : <Users size={17} />}
+        {isComparator ? 'Compare anime' : 'Explore staff'}
+      </button>
+
+      <div className="mock-note">
+        <strong>Mockup only</strong>
+        <span>{isComparator ? 'This will eventually compare selected anime across multiple signals.' : 'This will eventually search staff and map their recurring work patterns.'}</span>
+      </div>
+    </div>
+  )
+}
+
+function MockToolPreview({ tool, selectedAnime }: { tool: AnalysisToolDefinition; selectedAnime: AnimeSearchResult[] }) {
+  if (tool.id === 'staffExplorer') {
+    return (
+      <section className="graph-panel mock-preview-panel">
+        <MockPreviewHeader tool={tool} />
+        <div className="staff-map-preview">
+          <div className="staff-node primary">Yoko Kanno</div>
+          <div className="staff-node top-left">Cowboy Bebop</div>
+          <div className="staff-node top-right">Macross Plus</div>
+          <div className="staff-node bottom-left">Shinichiro Watanabe</div>
+          <div className="staff-node bottom-right">Bones</div>
+          <span className="mock-link link-one" />
+          <span className="mock-link link-two" />
+          <span className="mock-link link-three" />
+          <span className="mock-link link-four" />
+        </div>
+        <div className="timeline-strip">
+          {['1998', '2001', '2012', '2021', '2026'].map((year, index) => (
+            <span key={year} style={{ '--timeline-index': index } as CSSProperties}>{year}</span>
+          ))}
+        </div>
+      </section>
+    )
+  }
+
+  const titles = selectedAnime.length > 0 ? selectedAnime.map(titleFor).slice(0, 3) : ['Cowboy Bebop', 'Samurai Champloo', 'Space Dandy']
+  return (
+    <section className="graph-panel mock-preview-panel">
+      <MockPreviewHeader tool={tool} />
+      <div className="comparison-preview-grid">
+        {titles.map((title, index) => (
+          <article key={title} className="comparison-preview-column">
+            <div className="mock-rank">{index + 1}</div>
+            <h3>{title}</h3>
+            <MetricBar label="Staff overlap" value={82 - index * 18} />
+            <MetricBar label="Theme match" value={74 - index * 11} />
+            <MetricBar label="Audience signal" value={68 + index * 6} />
+          </article>
+        ))}
+      </div>
+      <div className="mock-insight-row">
+        <span>Highest common signal</span>
+        <strong>Creative staff + tonal tags</strong>
+      </div>
+    </section>
+  )
+}
+
+function MockPreviewHeader({ tool }: { tool: AnalysisToolDefinition }) {
+  const Icon = tool.icon
+  return (
+    <div className="mock-preview-header">
+      <span className="filter-icon blue"><Icon size={18} /></span>
+      <div>
+        <h2>{tool.label}</h2>
+        <p>{tool.description}</p>
+      </div>
+      <small>{tool.status}</small>
+    </div>
+  )
+}
+
+function MetricBar({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="metric-bar">
+      <span>{label}</span>
+      <strong>{value}%</strong>
+      <i><b style={{ width: `${value}%` }} /></i>
+    </div>
+  )
+}
+
+function MockToolDetails({ tool }: { tool: AnalysisToolDefinition }) {
+  const isComparator = tool.id === 'comparator'
+  const rows = isComparator
+    ? [
+        ['Shared staff', '12 people'],
+        ['Genre overlap', 'Action, Drama, Sci-Fi'],
+        ['Score spread', '+3.4 average delta'],
+      ]
+    : [
+        ['Frequent role', 'Music'],
+        ['Recurring links', 'Directors, studios'],
+        ['Timeline focus', 'Career clusters'],
+      ]
+
+  return (
+    <div className="mock-detail-panel">
+      <section className="detail-section">
+        <PanelHeader title="Tool Details" />
+        <div className="tool-summary">
+          <span>{tool.status}</span>
+          <p>{tool.description}</p>
+        </div>
+      </section>
+      <section className="filter-section">
+        <div className="mock-detail-list">
+          {rows.map(([label, value]) => (
+            <div key={label} className="mock-detail-row">
+              <span>{label}</span>
+              <strong>{value}</strong>
+            </div>
+          ))}
+        </div>
+        <div className="filter-card open">
+          <div className="filter-card-header">
+            <div className="filter-card-title">
+              <span className="filter-icon green"><SlidersHorizontal size={16} /></span>
+              <span>
+                <strong>Future filters</strong>
+                <small>{isComparator ? 'Score, format, genres, tags' : 'Roles, years, collaborators'}</small>
+              </span>
+            </div>
+            <span className="switch on" />
+          </div>
+        </div>
+      </section>
+    </div>
   )
 }
 
