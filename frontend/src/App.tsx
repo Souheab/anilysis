@@ -145,14 +145,12 @@ type FilterTemplateId = (typeof FILTER_TEMPLATES)[number]['id']
 type FilterSectionId = 'roles' | 'nodes' | 'edges' | 'favourites' | 'graph'
 type FilterSectionState = Record<FilterSectionId, boolean>
 type ResizePanel = 'left' | 'right'
-type AnalysisToolId = 'relationships' | 'comparator' | 'popularStaff'
+type AnalysisToolId = 'relationships' | 'popularStaff'
 type PopularStaffKind = (typeof POPULAR_STAFF_KINDS)[number]['value']
 type AnalysisToolDefinition = {
   id: AnalysisToolId
   label: string
   shortLabel: string
-  description: string
-  status: string
   icon: LucideIcon
 }
 type RecentComparison = {
@@ -166,24 +164,12 @@ const ANALYSIS_TOOLS: AnalysisToolDefinition[] = [
     id: 'relationships',
     label: 'Relationship Visualizer',
     shortLabel: 'Relations',
-    description: 'Map anime through shared staff, studios, voice actors, and production links.',
-    status: 'Live tool',
     icon: Network,
-  },
-  {
-    id: 'comparator',
-    label: 'Anime Comparator',
-    shortLabel: 'Compare',
-    description: 'Mock comparison workspace for scores, tags, staff overlap, and audience signals.',
-    status: 'Mockup',
-    icon: ArrowRightLeft,
   },
   {
     id: 'popularStaff',
     label: 'Popular Staff',
     shortLabel: 'Staff',
-    description: 'Browse selectable staff by role, starting with AniList favorites-ranked anime directors.',
-    status: 'Live tool',
     icon: Users,
   },
 ]
@@ -1310,9 +1296,7 @@ function App() {
               <TopSharedStaff items={comparison?.sharedStaff ?? []} onSelect={(staff) => void selectNode(`staff:${staff.staffId}`)} />
               <TopSharedVoiceActors items={comparison?.sharedVoiceActors ?? []} onSelect={(actor) => void selectNode(`voice_actor:${actor.voiceActorId}`)} />
             </>
-          ) : (
-            <MockToolControls tool={activeTool} selectedAnime={selectedAnime} />
-          )}
+          ) : null}
           <button
             type="button"
             className="panel-resize-handle left"
@@ -1363,9 +1347,7 @@ function App() {
               setRightPanelCollapsed(false)
             }}
           />
-        ) : (
-          <MockToolPreview tool={activeTool} selectedAnime={selectedAnime} />
-        )}
+        ) : null}
 
         <aside className={`right-panel panel ${effectiveRightPanelCollapsed ? 'collapsed' : ''}`}>
           <button
@@ -1429,9 +1411,7 @@ function App() {
               animeError={popularStaffAnimeError}
               onClose={() => setSelectedPopularStaff(null)}
             />
-          ) : (
-            <MockToolDetails tool={activeTool} />
-          )}
+          ) : null}
         </aside>
       </div>
       <SettingsModal
@@ -1615,147 +1595,6 @@ function PopularStaffDetails({
         </div>
       ) : null}
     </section>
-  )
-}
-
-function MockToolControls({ tool, selectedAnime }: { tool: AnalysisToolDefinition; selectedAnime: AnimeSearchResult[] }) {
-  const isComparator = tool.id === 'comparator'
-  const mockInputs = isComparator
-    ? ['Primary anime', 'Comparison anime', 'Optional benchmark']
-    : ['Staff name', 'Role focus', 'Era range']
-
-  return (
-    <div className="mock-control-panel">
-      <PanelHeader title={tool.label} />
-      <div className="tool-summary">
-        <span>{tool.status}</span>
-        <p>{tool.description}</p>
-      </div>
-
-      <div className="mock-input-group">
-        {mockInputs.map((label, index) => (
-          <label key={label} className="mock-input-row">
-            <span>{label}</span>
-            <input
-              readOnly
-              value={
-                isComparator
-                  ? selectedAnime[index] ? titleFor(selectedAnime[index]) : ''
-                  : index === 0 ? 'Yoko Kanno' : index === 1 ? 'Music + direction links' : '1998 - 2026'
-              }
-              placeholder={isComparator ? 'Use top search to add anime' : label}
-            />
-          </label>
-        ))}
-      </div>
-
-      <button type="button" className="analysis-button mock-action" disabled>
-        {isComparator ? <ArrowRightLeft size={17} /> : <Users size={17} />}
-        {isComparator ? 'Compare anime' : 'Explore staff'}
-      </button>
-
-      <div className="mock-note">
-        <strong>Mockup only</strong>
-        <span>{isComparator ? 'This will eventually compare selected anime across multiple signals.' : 'This will eventually search staff and map their recurring work patterns.'}</span>
-      </div>
-    </div>
-  )
-}
-
-function MockToolPreview({ tool, selectedAnime }: { tool: AnalysisToolDefinition; selectedAnime: AnimeSearchResult[] }) {
-  const titles = selectedAnime.length > 0 ? selectedAnime.map(titleFor).slice(0, 3) : ['Cowboy Bebop', 'Samurai Champloo', 'Space Dandy']
-  return (
-    <section className="graph-panel mock-preview-panel">
-      <MockPreviewHeader tool={tool} />
-      <div className="comparison-preview-grid">
-        {titles.map((title, index) => (
-          <article key={title} className="comparison-preview-column">
-            <div className="mock-rank">{index + 1}</div>
-            <h3>{title}</h3>
-            <MetricBar label="Staff overlap" value={82 - index * 18} />
-            <MetricBar label="Theme match" value={74 - index * 11} />
-            <MetricBar label="Audience signal" value={68 + index * 6} />
-          </article>
-        ))}
-      </div>
-      <div className="mock-insight-row">
-        <span>Highest common signal</span>
-        <strong>Creative staff + tonal tags</strong>
-      </div>
-    </section>
-  )
-}
-
-function MockPreviewHeader({ tool }: { tool: AnalysisToolDefinition }) {
-  const Icon = tool.icon
-  return (
-    <div className="mock-preview-header">
-      <span className="filter-icon blue"><Icon size={18} /></span>
-      <div>
-        <h2>{tool.label}</h2>
-        <p>{tool.description}</p>
-      </div>
-      <small>{tool.status}</small>
-    </div>
-  )
-}
-
-function MetricBar({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="metric-bar">
-      <span>{label}</span>
-      <strong>{value}%</strong>
-      <i><b style={{ width: `${value}%` }} /></i>
-    </div>
-  )
-}
-
-function MockToolDetails({ tool }: { tool: AnalysisToolDefinition }) {
-  const isComparator = tool.id === 'comparator'
-  const rows = isComparator
-    ? [
-        ['Shared staff', '12 people'],
-        ['Genre overlap', 'Action, Drama, Sci-Fi'],
-        ['Score spread', '+3.4 average delta'],
-      ]
-    : [
-        ['Frequent role', 'Music'],
-        ['Recurring links', 'Directors, studios'],
-        ['Timeline focus', 'Career clusters'],
-      ]
-
-  return (
-    <div className="mock-detail-panel">
-      <section className="detail-section">
-        <PanelHeader title="Tool Details" />
-        <div className="tool-summary">
-          <span>{tool.status}</span>
-          <p>{tool.description}</p>
-        </div>
-      </section>
-      <section className="filter-section">
-        <div className="mock-detail-list">
-          {rows.map(([label, value]) => (
-            <div key={label} className="mock-detail-row">
-              <span>{label}</span>
-              <strong>{value}</strong>
-            </div>
-          ))}
-        </div>
-        <div className="filter-card open">
-          <div className="filter-card-header">
-            <div className="filter-card-title">
-              <span className="filter-icon green"><SlidersHorizontal size={16} /></span>
-              <span>
-                <strong>Future filters</strong>
-                <small>{isComparator ? 'Score, format, genres, tags' : 'Roles, years, collaborators'}</small>
-              </span>
-            </div>
-            <span className="switch on" />
-          </div>
-        </div>
-      </section>
-    </div>
   )
 }
 
