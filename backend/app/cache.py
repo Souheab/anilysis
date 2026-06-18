@@ -40,6 +40,7 @@ POPULAR_STAFF_CACHE_TTL = timedelta(hours=12)
 STAFF_ANIME_CACHE_TTL = timedelta(hours=12)
 ENTITY_CACHE_TTL = timedelta(hours=12)
 PROFILE_CACHE_TTL = timedelta(minutes=30)
+PROFILE_CACHE_VERSION = "v2"
 
 
 class ApiResponseCache:
@@ -200,7 +201,7 @@ class AnimeCacheService:
         try:
             data = await self.api_cache.get_or_fetch_json(
                 session,
-                f"anilist:profile_anime:{normalized_username.casefold()}",
+                f"anilist:profile_anime:{PROFILE_CACHE_VERSION}:{normalized_username.casefold()}",
                 PROFILE_CACHE_TTL,
                 lambda: self.client.fetch_user_anime_profile(normalized_username),
             )

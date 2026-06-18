@@ -1,8 +1,13 @@
+import json
+from datetime import timedelta
+
 from fastapi.testclient import TestClient
+from sqlmodel import Session
 
 from app import api
 from app.anilist import AniListError
-from app.cache import AnimeCacheService
+from app.cache import AnimeCacheService, PROFILE_CACHE_VERSION
+from app.models import ApiCacheEntry, utc_now
 
 
 class ApiFakeAniListClient:
@@ -467,6 +472,66 @@ def test_profile_anime_endpoint_returns_analysis_and_uses_cache(client: TestClie
     assert cached_response.status_code == 200
     assert cached_response.json() == body
     assert anilist.profile_count == 1
+
+
+def test_profile_anime_endpoint_ignores_legacy_profile_cache(
+    client: TestClient,
+    session: Session,
+    monkeypatch,
+):
+    now = utc_now()
+    session.add(
+        ApiCacheEntry(
+            key="anilist:profile_anime:taste_user",
+            value_json=json.dumps(
+                {
+                    "user": {
+                        "id": 44,
+                        "name": "taste_user",
+                        "avatarImageUrl": None,
+                        "bannerImageUrl": None,
+                        "siteUrl": "https://anilist.co/user/taste_user",
+                    },
+                    "entries": [
+                        {
+                            "id": 1,
+                            "titleRomaji": "Cached Without Staff",
+                            "titleEnglish": None,
+                            "titleNative": None,
+                            "coverImageUrl": None,
+                            "year": 1998,
+                            "format": "TV",
+                            "episodes": 26,
+                            "siteUrl": None,
+                            "averageScore": 88,
+                            "popularity": 5000,
+                            "favourites": 500,
+                            "listStatus": "COMPLETED",
+                            "score": 92,
+                            "progress": 26,
+                            "updatedAt": 1710000000,
+                            "genres": [],
+                            "tags": [],
+                            "studios": [],
+                            "staff": [],
+                        }
+                    ],
+                }
+            ),
+            expires_at=now + timedelta(minutes=30),
+            updated_at=now,
+        )
+    )
+    session.commit()
+    anilist = ApiFakeProfileClient()
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(anilist))
+
+    response = client.get("/api/profile/anime", params={"username": "taste_user"})
+
+    assert response.status_code == 200
+    assert response.json()["staffAffinity"][0]["label"] == "Creative Lead"
+    assert anilist.profile_count == 1
+    assert session.get(ApiCacheEntry, f"anilist:profile_anime:{PROFILE_CACHE_VERSION}:taste_user") is not None
 
 
 def test_profile_anime_endpoint_validates_username(client: TestClient, monkeypatch):
