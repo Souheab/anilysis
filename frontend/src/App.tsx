@@ -1879,7 +1879,7 @@ function ProfileDashboard({
           </div>
           <div className="profile-grid two">
             <ProfileDistribution title="Release Decades" rows={profile.yearDistribution} />
-            <ProfileDistribution title="Score Buckets" rows={profile.scoreDistribution} />
+            <ProfileScoreHistogram rows={profile.scoreDistribution} />
           </div>
           <ProfileAnimeSection title="Highest Rated" items={profile.highestRated} />
           <ProfileAnimeSection title="Lowest Rated Completed" items={profile.lowestRatedCompleted} />
@@ -1952,6 +1952,31 @@ function ProfileDistribution({ title, rows }: { title: string; rows: ProfileDist
   )
 }
 
+function ProfileScoreHistogram({ rows }: { rows: ProfileDistributionRow[] }) {
+  const sortedRows = [...rows].sort((a, b) => scoreBucketValue(b.label) - scoreBucketValue(a.label))
+  const maxCount = Math.max(...sortedRows.map((row) => row.count), 0)
+
+  return (
+    <section className="profile-card profile-score-card">
+      <div className="section-title compact">
+        <h4>Score Distribution</h4>
+      </div>
+      <div className="profile-score-histogram" aria-label="Score distribution histogram">
+        {sortedRows.map((row) => (
+          <div key={row.label} className="profile-score-row" title={`${row.count.toLocaleString()} anime`}>
+            <span>{scoreBucketLabel(row.label)}</span>
+            <div className="profile-score-track">
+              <i style={{ '--score-width': `${maxCount ? Math.max(1.5, (row.count / maxCount) * 100) : 0}%` } as CSSProperties} />
+            </div>
+            <strong>{row.count.toLocaleString()}</strong>
+          </div>
+        ))}
+        {rows.length === 0 ? <p className="muted">No scored anime available.</p> : null}
+      </div>
+    </section>
+  )
+}
+
 function ProfileTasteList({ title, rows }: { title: string; rows: ProfileTasteRow[] }) {
   return (
     <section className="profile-card">
@@ -2007,6 +2032,17 @@ function ProfileAnimeSection({
 
 function formatProfileScore(value?: number | null) {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value.toLocaleString(undefined, { maximumFractionDigits: 1 }) : '--'
+}
+
+function scoreBucketValue(label: string) {
+  const [start = label] = label.split('-')
+  const value = Number(start)
+  return Number.isFinite(value) ? value : 0
+}
+
+function scoreBucketLabel(label: string) {
+  const value = scoreBucketValue(label)
+  return value > 0 && value <= 10 ? String(value) : label
 }
 
 function profileAnimeMeta(anime: ProfileAnimeEntry, showUpdated: boolean) {

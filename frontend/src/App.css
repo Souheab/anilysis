@@ -1686,6 +1686,50 @@ button {
   background: linear-gradient(90deg, #38bdf8, #4ade80);
 }
 
+.profile-score-histogram {
+  display: grid;
+  gap: 10px;
+}
+
+.profile-score-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 52px;
+  align-items: center;
+  gap: 10px;
+  min-height: 22px;
+  color: #cbd5e1;
+}
+
+.profile-score-row span {
+  color: #cbd5e1;
+  font-size: 13px;
+  font-weight: 800;
+  text-align: right;
+}
+
+.profile-score-row strong {
+  color: #f8fafc;
+  font-size: 13px;
+  text-align: right;
+}
+
+.profile-score-track {
+  height: 12px;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.profile-score-track i {
+  display: block;
+  width: var(--score-width);
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #38bdf8, #4ade80);
+  box-shadow: 0 0 18px rgba(56, 189, 248, 0.14);
+}
+
 .profile-taste-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
