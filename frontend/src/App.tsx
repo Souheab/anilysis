@@ -1510,6 +1510,7 @@ function App() {
       >
         <ToolRail activeToolId={activeTool.id} onSelect={setActiveToolId} />
 
+        {!isProfileTool ? (
         <aside className={`left-panel panel ${leftPanelCollapsed || isGeneralSearchTool || isPopularStaffTool ? 'collapsed' : ''}`}>
           {isRelationshipTool ? (
             <>
@@ -1575,15 +1576,6 @@ function App() {
               onSelect={assignEntity}
               onClear={clearEntitySlot}
             />
-          ) : isProfileTool ? (
-            <ProfileControls
-              username={profileUsername}
-              profile={animeProfile}
-              loading={profileLoading}
-              error={profileError}
-              onUsernameChange={setProfileUsername}
-              onSubmit={submitProfileUsername}
-            />
           ) : null}
           <button
             type="button"
@@ -1592,6 +1584,7 @@ function App() {
             onPointerDown={(event) => startPanelResize('left', event)}
           />
         </aside>
+        ) : null}
 
         {isRelationshipTool ? (
           <section className="graph-panel">
@@ -1655,6 +1648,7 @@ function App() {
           />
         ) : null}
 
+        {!isProfileTool ? (
         <aside className={`right-panel panel ${effectiveRightPanelCollapsed ? 'collapsed' : ''}`}>
           <button
             type="button"
@@ -1719,6 +1713,7 @@ function App() {
             />
           ) : null}
         </aside>
+        ) : null}
       </div>
       <SettingsModal
         open={settingsOpen}
@@ -1781,10 +1776,17 @@ function GeneralSearchPanel() {
   useEffect(() => {
     const trimmed = query.trim()
     if (trimmed.length < 2) {
-      setResults([])
-      setError(null)
-      setLoading(false)
-      return
+      let cancelled = false
+      window.queueMicrotask(() => {
+        if (!cancelled) {
+          setResults([])
+          setError(null)
+          setLoading(false)
+        }
+      })
+      return () => {
+        cancelled = true
+      }
     }
     const controller = new AbortController()
     const timeout = window.setTimeout(() => {
@@ -1811,14 +1813,25 @@ function GeneralSearchPanel() {
 
   useEffect(() => {
     if (!selectedEntity) {
-      setEntityDetail(null)
-      setDetailError(null)
-      setDetailLoading(false)
-      return
+      let cancelled = false
+      window.queueMicrotask(() => {
+        if (!cancelled) {
+          setEntityDetail(null)
+          setDetailError(null)
+          setDetailLoading(false)
+        }
+      })
+      return () => {
+        cancelled = true
+      }
     }
     const controller = new AbortController()
-    setDetailLoading(true)
-    setDetailError(null)
+    window.queueMicrotask(() => {
+      if (!controller.signal.aborted) {
+        setDetailLoading(true)
+        setDetailError(null)
+      }
+    })
     void fetchEntitySummary(selectedEntity.type, selectedEntity.id, controller.signal)
       .then(setEntityDetail)
       .catch((requestError) => {
@@ -2062,76 +2075,10 @@ function ProfileSearchBar({
         onChange={(event) => onUsernameChange(event.target.value)}
         placeholder="Enter AniList username..."
       />
-      <button type="submit" disabled={loading}>
-        {loading ? <Loader2 className="spin" size={17} /> : <ArrowRightLeft size={17} />}
+      <button type="submit" disabled={loading} aria-label="Search profile">
+        {loading ? <Loader2 className="spin" size={17} /> : <Search size={17} />}
       </button>
     </form>
-  )
-}
-
-function ProfileControls({
-  username,
-  profile,
-  loading,
-  error,
-  onUsernameChange,
-  onSubmit,
-}: {
-  username: string
-  profile: AnimeProfileResponse | null
-  loading: boolean
-  error: string | null
-  onUsernameChange: (username: string) => void
-  onSubmit: () => void
-}) {
-  return (
-    <>
-      <PanelHeader title="Profile Explorer" />
-      <form
-        className="profile-control-card"
-        onSubmit={(event) => {
-          event.preventDefault()
-          onSubmit()
-        }}
-      >
-        <label className="profile-input">
-          <span>AniList username</span>
-          <input value={username} onChange={(event) => onUsernameChange(event.target.value)} placeholder="username" />
-        </label>
-        <button type="submit" className="analysis-button" disabled={loading}>
-          {loading ? <Loader2 className="spin" size={17} /> : <Search size={17} />}
-          {loading ? 'Loading profile...' : 'Analyze profile'}
-        </button>
-        {error ? (
-          <div className="inline-error">
-            <strong>Error occurred:</strong>
-            <span>{error}</span>
-          </div>
-        ) : null}
-      </form>
-      {profile ? (
-        <section className="score-card profile-mini-summary">
-          <div className="score-title">
-            <span>{profile.user.name}</span>
-            <Users size={15} />
-          </div>
-          <div className="score-grid">
-            <div className="score-row">
-              <span>Total anime</span>
-              <strong>{profile.summary.totalEntries.toLocaleString()}</strong>
-            </div>
-            <div className="score-row">
-              <span>Completed</span>
-              <strong>{profile.summary.completedCount.toLocaleString()}</strong>
-            </div>
-            <div className="score-row">
-              <span>Mean score</span>
-              <strong>{formatProfileScore(profile.summary.meanScore)}</strong>
-            </div>
-          </div>
-        </section>
-      ) : null}
-    </>
   )
 }
 
