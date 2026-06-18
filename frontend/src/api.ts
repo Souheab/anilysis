@@ -281,6 +281,11 @@ export function searchEntities(type: EntityType, query: string, signal?: AbortSi
   return request<EntitySearchResult[]>(`/api/search/entities?${params.toString()}`, { signal })
 }
 
+export function searchAll(query: string, limit = 8, signal?: AbortSignal) {
+  const params = new URLSearchParams({ q: query, limit: String(limit) })
+  return request<EntitySearchResult[]>(`/api/search/all?${params.toString()}`, { signal })
+}
+
 export function fetchPopularStaff(kind = 'Director', limit = 50, signal?: AbortSignal) {
   const params = new URLSearchParams({ kind, limit: String(limit) })
   return request<PopularStaff[]>(`/api/staff/popular?${params.toString()}`, { signal })
@@ -312,6 +317,10 @@ export function compareEntities(type: EntityType, leftId: number, rightId: numbe
     method: 'POST',
     body: JSON.stringify({ type, leftId, rightId }),
   })
+}
+
+export function fetchEntitySummary(type: EntityType, id: number, signal?: AbortSignal) {
+  return request<EntitySummary>(`/api/entities/${type}/${id}`, { signal })
 }
 
 export function fetchGraph(

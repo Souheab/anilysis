@@ -13,6 +13,7 @@ from app.schemas import (
     EntityCompareRequest,
     EntityCompareResponse,
     EntitySearchResult,
+    EntitySummary,
     EntityType,
     GraphRequest,
     GraphResponse,
@@ -45,6 +46,12 @@ async def search_entities(
     session: Session = Depends(get_session),
 ) -> list[EntitySearchResult]:
     return await cache_service.search_entities(session, type, q)
+
+
+@router.get("/search/all", response_model=list[EntitySearchResult])
+async def search_all(q: str, limit: int = 8, session: Session = Depends(get_session)) -> list[EntitySearchResult]:
+    bounded_limit = min(10, max(1, limit))
+    return await cache_service.search_all(session, q, limit=bounded_limit)
 
 
 @router.get("/staff/popular", response_model=list[PopularStaff])
@@ -82,6 +89,11 @@ def get_anime(anime_id: int, session: Session = Depends(get_session)) -> AnimeDe
 @router.post("/entities/compare", response_model=EntityCompareResponse)
 async def compare_entities(request: EntityCompareRequest, session: Session = Depends(get_session)) -> EntityCompareResponse:
     return await cache_service.compare_entities(session, request.type, request.leftId, request.rightId)
+
+
+@router.get("/entities/{entity_type}/{entity_id}", response_model=EntitySummary)
+async def entity_summary(entity_type: EntityType, entity_id: int, session: Session = Depends(get_session)) -> EntitySummary:
+    return await cache_service.entity_summary(session, entity_type, entity_id)
 
 
 @router.post("/compare", response_model=CompareResponse)

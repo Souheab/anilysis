@@ -321,6 +321,26 @@ def test_entity_search_endpoint_returns_voice_actors(client: TestClient, monkeyp
     assert response.json()[0]["subtitle"] == "Voice Actor"
 
 
+def test_general_search_endpoint_returns_mixed_results(client: TestClient, monkeypatch):
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeAniListClient()))
+
+    response = client.get("/api/search/all", params={"q": "source", "limit": "2"})
+
+    assert response.status_code == 200
+    assert [item["type"] for item in response.json()] == ["anime", "staff", "studio", "voiceActor"]
+    assert response.json()[0]["label"] == "Source"
+
+
+def test_entity_summary_endpoint_returns_staff_detail(client: TestClient, monkeypatch):
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeAniListClient()))
+
+    response = client.get("/api/entities/staff/10")
+
+    assert response.status_code == 200
+    assert response.json()["label"] == "Creative Person"
+    assert response.json()["relatedAnime"][0]["titleRomaji"] == "Popular Credit"
+
+
 def test_popular_staff_endpoint_returns_directors_by_default(client: TestClient, monkeypatch):
     anilist = ApiFakePopularStaffClient()
     monkeypatch.setattr(api, "cache_service", AnimeCacheService(anilist))

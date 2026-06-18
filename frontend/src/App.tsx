@@ -39,9 +39,11 @@ import {
   DEFAULT_STAFF_POPULARITY_FILTERS,
   fetchGraph,
   fetchAnimeProfile,
+  fetchEntitySummary,
   fetchNodeDetail,
   fetchPopularStaff,
   fetchStaffDirectedAnime,
+  searchAll,
   searchAnime,
   searchEntities,
   type AnimeSearchResult,
@@ -50,6 +52,7 @@ import {
   type CompareResponse,
   type EntityCompareResponse,
   type EntitySearchResult,
+  type EntitySummary,
   type EntityType,
   type GraphResponse,
   type NodeDetail,
@@ -162,7 +165,7 @@ type FilterTemplateId = (typeof FILTER_TEMPLATES)[number]['id']
 type FilterSectionId = 'roles' | 'nodes' | 'edges' | 'favourites' | 'graph'
 type FilterSectionState = Record<FilterSectionId, boolean>
 type ResizePanel = 'left' | 'right'
-type AnalysisToolId = 'relationships' | 'popularStaff' | 'entityCompare' | 'profile'
+type AnalysisToolId = 'relationships' | 'search' | 'popularStaff' | 'entityCompare' | 'profile'
 type PopularStaffKind = (typeof POPULAR_STAFF_KINDS)[number]['value']
 type AnalysisToolDefinition = {
   id: AnalysisToolId
@@ -182,6 +185,12 @@ const ANALYSIS_TOOLS: AnalysisToolDefinition[] = [
     label: 'Relationship Visualizer',
     shortLabel: 'Relations',
     icon: Network,
+  },
+  {
+    id: 'search',
+    label: 'Information Search',
+    shortLabel: 'Search',
+    icon: Search,
   },
   {
     id: 'popularStaff',
@@ -967,11 +976,12 @@ function App() {
   const atSelectionLimit = selectedAnime.length >= MAX_COMPARE_ANIME
   const activeTool = ANALYSIS_TOOLS.find((tool) => tool.id === activeToolId) ?? ANALYSIS_TOOLS[0]
   const isRelationshipTool = activeTool.id === 'relationships'
+  const isGeneralSearchTool = activeTool.id === 'search'
   const isPopularStaffTool = activeTool.id === 'popularStaff'
   const isEntityCompareTool = activeTool.id === 'entityCompare'
   const isProfileTool = activeTool.id === 'profile'
   const staffDetailsCollapsed = isPopularStaffTool && !selectedPopularStaff
-  const effectiveRightPanelCollapsed = rightPanelCollapsed || staffDetailsCollapsed || isEntityCompareTool || isProfileTool
+  const effectiveRightPanelCollapsed = rightPanelCollapsed || staffDetailsCollapsed || isGeneralSearchTool || isEntityCompareTool || isProfileTool
   const selectedEdge = useMemo(
     () => displayGraph?.edges.find((edge) => edge.data.id === selectedEdgeId) ?? null,
     [displayGraph, selectedEdgeId],
@@ -1448,7 +1458,12 @@ function App() {
     <main className="app-shell" data-theme={themePreference ?? undefined}>
       <header className="topbar">
         <h1>Anime Analysis</h1>
-        {isEntityCompareTool ? (
+        {isGeneralSearchTool ? (
+          <div className="topbar-context">
+            <Search size={18} />
+            <span>Search anime, staff, studios, and voice actors</span>
+          </div>
+        ) : isEntityCompareTool ? (
           <div className="topbar-context">
             <ArrowRightLeft size={18} />
             <span>Compare {entityTypeLabel(entityCompareType).toLowerCase()} metrics</span>
@@ -1483,7 +1498,7 @@ function App() {
       </header>
 
       <div
-        className={`workspace ${isPopularStaffTool ? 'popular-staff-workspace' : ''} ${isEntityCompareTool ? 'entity-compare-workspace' : ''} ${isProfileTool ? 'profile-workspace' : ''} ${leftPanelCollapsed ? 'left-collapsed' : ''} ${effectiveRightPanelCollapsed ? 'right-collapsed' : ''}`}
+        className={`workspace ${isGeneralSearchTool ? 'general-search-workspace' : ''} ${isPopularStaffTool ? 'popular-staff-workspace' : ''} ${isEntityCompareTool ? 'entity-compare-workspace' : ''} ${isProfileTool ? 'profile-workspace' : ''} ${leftPanelCollapsed ? 'left-collapsed' : ''} ${effectiveRightPanelCollapsed ? 'right-collapsed' : ''}`}
         style={
           {
             '--left-panel-width': `${leftPanelWidth}px`,
@@ -1493,7 +1508,7 @@ function App() {
       >
         <ToolRail activeToolId={activeTool.id} onSelect={setActiveToolId} />
 
-        <aside className={`left-panel panel ${leftPanelCollapsed || isPopularStaffTool ? 'collapsed' : ''}`}>
+        <aside className={`left-panel panel ${leftPanelCollapsed || isGeneralSearchTool || isPopularStaffTool ? 'collapsed' : ''}`}>
           {isRelationshipTool ? (
             <>
               <PanelHeader title="Analyze Anime" />
@@ -1606,6 +1621,8 @@ function App() {
             />
             {showGraphLegend ? <GraphLegend /> : null}
           </section>
+        ) : isGeneralSearchTool ? (
+          <GeneralSearchPanel />
         ) : isPopularStaffTool ? (
           <PopularStaffPreview
             kind={popularStaffKind}
@@ -1743,6 +1760,279 @@ function ToolRail({
       })}
     </nav>
   )
+}
+
+type GeneralSearchFilter = EntityType | 'all'
+
+function GeneralSearchPanel() {
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<GeneralSearchFilter>('all')
+  const [results, setResults] = useState<EntitySearchResult[]>([])
+  const [selectedEntity, setSelectedEntity] = useState<EntitySearchResult | null>(null)
+  const [entityDetail, setEntityDetail] = useState<EntitySummary | null>(null)
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [detailError, setDetailError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const trimmed = query.trim()
+    if (trimmed.length < 2) {
+      setResults([])
+      setError(null)
+      setLoading(false)
+      return
+    }
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => {
+      setLoading(true)
+      setError(null)
+      const request = filter === 'all'
+        ? searchAll(trimmed, 8, controller.signal)
+        : searchEntities(filter, trimmed, controller.signal)
+      void request
+        .then(setResults)
+        .catch((requestError) => {
+          if (controller.signal.aborted) return
+          setError(requestError instanceof Error ? requestError.message : 'Search failed')
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false)
+        })
+    }, 220)
+    return () => {
+      controller.abort()
+      window.clearTimeout(timeout)
+    }
+  }, [filter, query])
+
+  useEffect(() => {
+    if (!selectedEntity) {
+      setEntityDetail(null)
+      setDetailError(null)
+      setDetailLoading(false)
+      return
+    }
+    const controller = new AbortController()
+    setDetailLoading(true)
+    setDetailError(null)
+    void fetchEntitySummary(selectedEntity.type, selectedEntity.id, controller.signal)
+      .then(setEntityDetail)
+      .catch((requestError) => {
+        if (controller.signal.aborted) return
+        setEntityDetail(null)
+        setDetailError(requestError instanceof Error ? requestError.message : 'Could not load details')
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setDetailLoading(false)
+      })
+    return () => controller.abort()
+  }, [selectedEntity])
+
+  const visibleResults = filter === 'all' ? results : results.filter((result) => result.type === filter)
+  const submitSearch = () => {
+    const firstResult = visibleResults[0]
+    if (!firstResult) {
+      return
+    }
+    setSelectedEntity(firstResult)
+    setQuery(firstResult.label)
+    setShowSuggestions(false)
+  }
+
+  return (
+    <section className="graph-panel general-search-panel">
+      <div className="general-search-header">
+        <span className="filter-icon blue"><Search size={18} /></span>
+        <div>
+          <h2>Information Search</h2>
+          <p>Search AniList records for titles, creators, studios, and Japanese voice cast.</p>
+        </div>
+      </div>
+
+      <form
+        className="general-search-toolbar"
+        onSubmit={(event) => {
+          event.preventDefault()
+          submitSearch()
+        }}
+      >
+        <div className="general-search-combobox">
+          <label className="general-search-box">
+            <Search size={18} />
+            <input
+              value={query}
+              onFocus={() => setShowSuggestions(true)}
+              onChange={(event) => {
+                setQuery(event.target.value)
+                setShowSuggestions(true)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  submitSearch()
+                } else if (event.key === 'Escape') {
+                  setShowSuggestions(false)
+                }
+              }}
+              placeholder="Search anime, staff, studios..."
+            />
+            <button type="submit" disabled={!visibleResults.length || loading}>
+              {loading ? <Loader2 className="spin" size={17} /> : <Search size={17} />}
+            </button>
+          </label>
+          {showSuggestions && query.trim().length >= 2 ? (
+            <div className="general-search-suggestions">
+              {loading ? <p className="command-state"><Loader2 className="spin" size={16} /> Searching AniList...</p> : null}
+              {error ? <p className="command-state error-text">{error}</p> : null}
+              {!loading && !error && visibleResults.length === 0 ? <p className="command-state">No AniList records found.</p> : null}
+              {!loading && !error ? (
+                <div className="command-results">
+                  {visibleResults.map((entity) => (
+                    <button
+                      key={`${entity.type}-${entity.id}`}
+                      type="button"
+                      className="general-suggestion-row"
+                      onClick={() => {
+                        setSelectedEntity(entity)
+                        setQuery(entity.label)
+                        setShowSuggestions(false)
+                      }}
+                    >
+                      <EntityAvatar entity={entity} type={entity.type} />
+                      <span className="result-main">
+                        <span>{entity.label}</span>
+                        <small>{entity.subtitle || searchEntityFallback(entity.type)} • {entityTypeLabel(entity.type)}</small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        <div className="entity-type-tabs general-search-tabs" role="tablist" aria-label="Search categories">
+          <button type="button" className={filter === 'all' ? 'active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>
+            <Search size={15} />
+            <span>All</span>
+          </button>
+          {ENTITY_TYPE_OPTIONS.map((option) => {
+            const Icon = option.icon
+            const active = filter === option.value
+            return (
+              <button key={option.value} type="button" className={active ? 'active' : ''} aria-pressed={active} onClick={() => setFilter(option.value)}>
+                <Icon size={15} />
+                <span>{option.label}</span>
+              </button>
+            )
+          })}
+        </div>
+      </form>
+
+      {!selectedEntity && query.trim().length < 2 ? (
+        <div className="general-search-empty">
+          <Search size={28} />
+          <span>Search and select a result to inspect it here.</span>
+        </div>
+      ) : null}
+      {selectedEntity ? (
+        <GeneralSearchDetail entity={selectedEntity} detail={entityDetail} loading={detailLoading} error={detailError} />
+      ) : null}
+    </section>
+  )
+}
+
+function GeneralSearchDetail({
+  entity,
+  detail,
+  loading,
+  error,
+}: {
+  entity: EntitySearchResult
+  detail: EntitySummary | null
+  loading: boolean
+  error: string | null
+}) {
+  const metadata = detail?.metadata ?? {}
+  const description = typeof metadata.description === 'string' ? stripHtml(metadata.description) : ''
+  const metrics = detail ? entityDetailMetrics(detail) : []
+  return (
+    <div className="general-search-detail">
+      <section className={`general-search-hero ${entity.type}`}>
+        <EntityAvatar entity={detail ? { ...entity, imageUrl: detail.imageUrl, siteUrl: detail.siteUrl } : entity} type={entity.type} />
+        <div>
+          <span>{entityTypeLabel(entity.type)}</span>
+          <h3>{detail?.label ?? entity.label}</h3>
+          <p>{detail?.subtitle || entity.subtitle || searchEntityFallback(entity.type)}</p>
+          {detail?.siteUrl ? <small>{detail.siteUrl}</small> : null}
+        </div>
+      </section>
+      {loading ? <div className="popular-staff-state"><Loader2 className="spin" size={20} /> Loading details...</div> : null}
+      {!loading && error ? <div className="popular-staff-state error-text">{error}</div> : null}
+      {detail && !loading ? (
+        <>
+          <section className="profile-metrics">
+            {metrics.map((metric) => (
+              <article key={metric.label} className="profile-metric">
+                <span>{metric.label}</span>
+                <strong>{metric.value}</strong>
+              </article>
+            ))}
+          </section>
+          {description ? (
+            <section className="profile-card">
+              <div className="section-title compact">
+                <h4>Description</h4>
+              </div>
+              <p className="about-text">{description}</p>
+            </section>
+          ) : null}
+          <section className="profile-card">
+            <div className="section-title compact">
+              <h4>{detail.type === 'anime' ? 'Anime Record' : 'Related Anime'}</h4>
+            </div>
+            <div className="related-anime-grid overlap">
+              {detail.relatedAnime.slice(0, 12).map((anime) => <RelatedAnimeCard key={anime.id} anime={anime} compact />)}
+              {detail.relatedAnime.length === 0 ? <p className="muted">No related anime loaded.</p> : null}
+            </div>
+          </section>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+function entityDetailMetrics(detail: EntitySummary) {
+  const metadata = detail.metadata
+  if (detail.type === 'anime') {
+    return [
+      { label: 'Score', value: metadata.averageScore ? `${metadata.averageScore}%` : '--' },
+      { label: 'Popularity', value: compactNumber(typeof metadata.popularity === 'number' ? metadata.popularity : null) },
+      { label: 'Favourites', value: compactNumber(detail.favourites) },
+      { label: 'Credits', value: `${metadata.staffCount ?? 0} staff` },
+    ]
+  }
+  return [
+    { label: 'Favourites', value: compactNumber(detail.favourites) },
+    { label: 'Anime Credits', value: detail.relatedAnime.length.toLocaleString() },
+    { label: 'Avg Score', value: averageRelatedValue(detail.relatedAnime, 'averageScore') },
+    { label: 'Top Popularity', value: compactNumber(Math.max(...detail.relatedAnime.map((anime) => anime.popularity ?? 0), 0)) },
+  ]
+}
+
+function averageRelatedValue(items: RelatedAnimeSummary[], key: 'averageScore') {
+  const values = items.map((item) => item[key]).filter((value): value is number => typeof value === 'number')
+  if (!values.length) {
+    return '--'
+  }
+  return `${Math.round(values.reduce((total, value) => total + value, 0) / values.length)}%`
+}
+
+function searchEntityFallback(type: EntityType) {
+  if (type === 'anime') return 'Anime'
+  if (type === 'studio') return 'Studio'
+  if (type === 'staff') return 'Staff'
+  return 'Voice Actor'
 }
 
 function ProfileSearchBar({

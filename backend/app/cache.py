@@ -154,6 +154,17 @@ class AnimeCacheService:
         except AniListError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+    async def search_all(self, session: Session, query: str, limit: int = 8) -> list[EntitySearchResult]:
+        normalized_query = query.strip()
+        if len(normalized_query) < 2:
+            return []
+        entity_types: tuple[EntityType, ...] = ("anime", "staff", "studio", "voiceActor")
+        results: list[EntitySearchResult] = []
+        for entity_type in entity_types:
+            items = await self.search_entities(session, entity_type, normalized_query)
+            results.extend(items[:limit])
+        return results
+
     async def popular_staff(self, session: Session, kind: str, limit: int) -> list[dict[str, Any]]:
         normalized_kind = kind.strip() or "Director"
         try:
@@ -211,6 +222,12 @@ class AnimeCacheService:
         if entity_type == "voiceActor":
             notes.append("Voice actors use AniList staff records with voice-acting character media.")
         return EntityCompareResponse(type=entity_type, left=left, right=right, metrics=metrics, overlap=overlap, notes=notes)
+
+    async def entity_summary(self, session: Session, entity_type: EntityType, entity_id: int) -> EntitySummary:
+        if entity_type == "anime":
+            anime = await self.ensure_anime_loaded(session, entity_id)
+            return self._anime_entity_summary(session, anime)
+        return await self._entity_summary(session, entity_type, entity_id)
 
     async def refresh_anime(self, session: Session, anime_id: int, force: bool = True) -> RefreshResponse:
         anime = await self.ensure_anime_loaded(session, anime_id, force=force)
