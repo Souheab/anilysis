@@ -196,6 +196,65 @@ export interface EntityCompareResponse {
   notes: string[]
 }
 
+export interface ProfileUserSummary {
+  id: number
+  name: string
+  avatarImageUrl?: string | null
+  bannerImageUrl?: string | null
+  siteUrl?: string | null
+}
+
+export interface ProfileListSummary {
+  totalEntries: number
+  completedCount: number
+  watchedEpisodes: number
+  meanScore?: number | null
+  statusCounts: Record<string, number>
+}
+
+export interface ProfileDistributionRow {
+  label: string
+  count: number
+  percentage: number
+}
+
+export interface ProfileTasteRow {
+  label: string
+  count: number
+  meanScore?: number | null
+}
+
+export interface ProfileAnimeEntry extends AnimeSearchResult {
+  listStatus: string
+  score?: number | null
+  progress?: number | null
+  episodes?: number | null
+  averageScore?: number | null
+  popularity?: number | null
+  favourites?: number | null
+  siteUrl?: string | null
+  genres: string[]
+  tags: string[]
+  studios: string[]
+  updatedAt?: number | null
+}
+
+export interface AnimeProfileResponse {
+  user: ProfileUserSummary
+  summary: ProfileListSummary
+  statusDistribution: ProfileDistributionRow[]
+  formatDistribution: ProfileDistributionRow[]
+  yearDistribution: ProfileDistributionRow[]
+  scoreDistribution: ProfileDistributionRow[]
+  topGenres: ProfileTasteRow[]
+  topTags: ProfileTasteRow[]
+  topStudios: ProfileTasteRow[]
+  highestRated: ProfileAnimeEntry[]
+  lowestRatedCompleted: ProfileAnimeEntry[]
+  longestWatched: ProfileAnimeEntry[]
+  recentlyUpdated: ProfileAnimeEntry[]
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -230,6 +289,11 @@ export function fetchPopularStaff(kind = 'Director', limit = 50, signal?: AbortS
 export function fetchStaffDirectedAnime(staffId: number, role = 'Director', limit = 12, signal?: AbortSignal) {
   const params = new URLSearchParams({ role, limit: String(limit) })
   return request<PopularStaffAnime[]>(`/api/staff/${staffId}/directed-anime?${params.toString()}`, { signal })
+}
+
+export function fetchAnimeProfile(username: string, signal?: AbortSignal) {
+  const params = new URLSearchParams({ username })
+  return request<AnimeProfileResponse>(`/api/profile/anime?${params.toString()}`, { signal })
 }
 
 export function compareAnime(

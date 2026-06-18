@@ -6,6 +6,7 @@ from app.database import get_session
 from app.graph import GraphService
 from app.schemas import (
     AnimeDetail,
+    AnimeProfileResponse,
     AnimeSearchResult,
     CompareRequest,
     CompareResponse,
@@ -61,6 +62,11 @@ async def staff_directed_anime(
 ) -> list[PopularStaffAnime]:
     bounded_limit = min(24, max(1, limit))
     return await cache_service.staff_directed_anime(session, staff_id=staff_id, role=role, limit=bounded_limit)
+
+
+@router.get("/profile/anime", response_model=AnimeProfileResponse)
+async def profile_anime(username: str, session: Session = Depends(get_session)) -> AnimeProfileResponse:
+    return await cache_service.profile_anime(session, username)
 
 
 @router.post("/anime/{anime_id}/refresh", response_model=RefreshResponse)

@@ -11,6 +11,7 @@ from sqlmodel import Session, delete, select
 from app.anilist import AniListClient, AniListError
 from app.models import ApiCacheEntry, Anime, AnimeStaffRole, AnimeStudio, AnimeVoiceActorRole, Staff, Studio, VoiceActor, utc_now
 from app.schemas import (
+    AnimeProfileResponse,
     AnimeDetail,
     AnimeSearchResult,
     ComparisonMetricRow,
@@ -18,6 +19,11 @@ from app.schemas import (
     EntitySearchResult,
     EntitySummary,
     EntityType,
+    ProfileAnimeEntry,
+    ProfileDistributionRow,
+    ProfileListSummary,
+    ProfileTasteRow,
+    ProfileUserSummary,
     RefreshResponse,
     RelatedAnimeSummary,
 )
@@ -29,6 +35,7 @@ SEARCH_CACHE_TTL = timedelta(minutes=30)
 POPULAR_STAFF_CACHE_TTL = timedelta(hours=12)
 STAFF_ANIME_CACHE_TTL = timedelta(hours=12)
 ENTITY_CACHE_TTL = timedelta(hours=12)
+PROFILE_CACHE_TTL = timedelta(minutes=30)
 
 
 class ApiResponseCache:
@@ -170,6 +177,24 @@ class AnimeCacheService:
             )
         except AniListError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    async def profile_anime(self, session: Session, username: str) -> AnimeProfileResponse:
+        normalized_username = username.strip()
+        if len(normalized_username) < 2:
+            raise HTTPException(status_code=422, detail="username must be at least 2 characters")
+        try:
+            data = await self.api_cache.get_or_fetch_json(
+                session,
+                f"anilist:profile_anime:{normalized_username.casefold()}",
+                PROFILE_CACHE_TTL,
+                lambda: self.client.fetch_user_anime_profile(normalized_username),
+            )
+        except AniListError as exc:
+            message = str(exc)
+            if "was not found" in message or "is private" in message:
+                raise HTTPException(status_code=404, detail=message) from exc
+            raise HTTPException(status_code=502, detail=message) from exc
+        return self._profile_response(data)
 
     async def compare_entities(self, session: Session, entity_type: EntityType, left_id: int, right_id: int) -> EntityCompareResponse:
         if left_id == right_id:
@@ -534,6 +559,137 @@ class AnimeCacheService:
             )
             for item in items
         ]
+
+    def _profile_response(self, data: dict[str, Any]) -> AnimeProfileResponse:
+        entries = [ProfileAnimeEntry(**item) for item in data.get("entries") or []]
+        completed = [entry for entry in entries if entry.listStatus == "COMPLETED"]
+        scored_completed = [entry for entry in completed if isinstance(entry.score, (int, float)) and entry.score > 0]
+        scored_entries = [entry for entry in entries if isinstance(entry.score, (int, float)) and entry.score > 0]
+        total = len(entries)
+        status_counts = self._count_by(entries, lambda entry: self._status_label(entry.listStatus))
+        watched_episodes = sum(self._watched_episode_count(entry) for entry in entries)
+
+        return AnimeProfileResponse(
+            user=ProfileUserSummary(**data["user"]),
+            summary=ProfileListSummary(
+                totalEntries=total,
+                completedCount=len(completed),
+                watchedEpisodes=watched_episodes,
+                meanScore=self._mean_score(scored_completed or scored_entries),
+                statusCounts=status_counts,
+            ),
+            statusDistribution=self._distribution(status_counts, total),
+            formatDistribution=self._distribution(self._count_by(entries, lambda entry: entry.format or "Unknown"), total),
+            yearDistribution=self._distribution(self._count_by(entries, self._year_bucket), total),
+            scoreDistribution=self._score_distribution(scored_entries),
+            topGenres=self._taste_rows(entries, lambda entry: entry.genres),
+            topTags=self._taste_rows(entries, lambda entry: entry.tags),
+            topStudios=self._taste_rows(entries, lambda entry: entry.studios),
+            highestRated=sorted(
+                scored_entries,
+                key=lambda entry: (entry.score or 0, entry.averageScore or 0, entry.popularity or 0),
+                reverse=True,
+            )[:8],
+            lowestRatedCompleted=sorted(
+                scored_completed,
+                key=lambda entry: (entry.score or 0, -(entry.averageScore or 0), -(entry.popularity or 0)),
+            )[:8],
+            longestWatched=sorted(
+                entries,
+                key=lambda entry: (self._watched_episode_count(entry), entry.score or 0),
+                reverse=True,
+            )[:8],
+            recentlyUpdated=sorted(entries, key=lambda entry: entry.updatedAt or 0, reverse=True)[:8],
+        )
+
+    def _count_by(self, entries: list[ProfileAnimeEntry], labeler: Callable[[ProfileAnimeEntry], str]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for entry in entries:
+            label = labeler(entry)
+            counts[label] = counts.get(label, 0) + 1
+        return counts
+
+    def _distribution(self, counts: dict[str, int], total: int, limit: int | None = None) -> list[ProfileDistributionRow]:
+        rows = [
+            ProfileDistributionRow(
+                label=label,
+                count=count,
+                percentage=round((count / total) * 100, 1) if total else 0,
+            )
+            for label, count in counts.items()
+        ]
+        rows.sort(key=lambda row: (row.count, row.label), reverse=True)
+        return rows[:limit] if limit else rows
+
+    def _taste_rows(
+        self,
+        entries: list[ProfileAnimeEntry],
+        labels_for: Callable[[ProfileAnimeEntry], list[str]],
+        limit: int = 8,
+    ) -> list[ProfileTasteRow]:
+        counts: dict[str, int] = {}
+        scores: dict[str, list[float]] = {}
+        for entry in entries:
+            for label in labels_for(entry):
+                counts[label] = counts.get(label, 0) + 1
+                if isinstance(entry.score, (int, float)) and entry.score > 0:
+                    scores.setdefault(label, []).append(float(entry.score))
+        rows = [
+            ProfileTasteRow(
+                label=label,
+                count=count,
+                meanScore=round(sum(scores[label]) / len(scores[label]), 1) if scores.get(label) else None,
+            )
+            for label, count in counts.items()
+        ]
+        rows.sort(key=lambda row: (row.count, row.meanScore or 0, row.label), reverse=True)
+        return rows[:limit]
+
+    def _score_distribution(self, entries: list[ProfileAnimeEntry]) -> list[ProfileDistributionRow]:
+        if not entries:
+            return []
+        scores = [float(entry.score or 0) for entry in entries]
+        max_score = max(scores)
+        counts: dict[str, int] = {}
+        if max_score <= 10:
+            for score in scores:
+                bucket_start = int(score)
+                label = f"{bucket_start}-{min(10, bucket_start + 1)}"
+                counts[label] = counts.get(label, 0) + 1
+        else:
+            for score in scores:
+                bucket_start = min(90, int(score // 10) * 10)
+                label = f"{bucket_start}-{bucket_start + 9 if bucket_start < 90 else 100}"
+                counts[label] = counts.get(label, 0) + 1
+        return self._distribution(counts, len(entries))
+
+    def _mean_score(self, entries: list[ProfileAnimeEntry]) -> float | None:
+        scores = [float(entry.score or 0) for entry in entries if isinstance(entry.score, (int, float)) and entry.score > 0]
+        return round(sum(scores) / len(scores), 1) if scores else None
+
+    def _watched_episode_count(self, entry: ProfileAnimeEntry) -> int:
+        if isinstance(entry.progress, int) and entry.progress > 0:
+            return min(entry.progress, entry.episodes or entry.progress)
+        if entry.listStatus == "COMPLETED" and isinstance(entry.episodes, int):
+            return entry.episodes
+        return 0
+
+    def _status_label(self, status: str) -> str:
+        labels = {
+            "CURRENT": "Watching",
+            "PLANNING": "Planning",
+            "COMPLETED": "Completed",
+            "DROPPED": "Dropped",
+            "PAUSED": "Paused",
+            "REPEATING": "Repeating",
+        }
+        return labels.get(status, status.replace("_", " ").title())
+
+    def _year_bucket(self, entry: ProfileAnimeEntry) -> str:
+        if not entry.year:
+            return "Unknown"
+        decade = (entry.year // 10) * 10
+        return f"{decade}s"
 
     def _related_overlap(self, left: list[RelatedAnimeSummary], right: list[RelatedAnimeSummary]) -> list[RelatedAnimeSummary]:
         right_ids = {item.id for item in right}

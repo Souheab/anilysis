@@ -614,6 +614,79 @@ async def test_fetch_staff_directed_anime_filters_dedupes_and_sorts_by_popularit
 
 
 @pytest.mark.asyncio
+async def test_fetch_user_anime_profile_normalizes_entries(httpx_mock):
+    httpx_mock.add_response(
+        url=ANILIST_ENDPOINT,
+        json={
+            "data": {
+                "User": {
+                    "id": 7,
+                    "name": "taste_user",
+                    "avatar": {"large": "avatar.jpg", "medium": None},
+                    "bannerImage": "banner.jpg",
+                    "siteUrl": "https://anilist.co/user/taste_user",
+                },
+                "MediaListCollection": {
+                    "lists": [
+                        {
+                            "status": "COMPLETED",
+                            "entries": [
+                                {
+                                    "id": 100,
+                                    "status": "COMPLETED",
+                                    "score": 92,
+                                    "progress": 26,
+                                    "updatedAt": 1710000000,
+                                    "media": {
+                                        "id": 1,
+                                        "title": {"romaji": "Space Show", "english": None, "native": None},
+                                        "coverImage": {"large": "cover.jpg", "medium": None},
+                                        "bannerImage": None,
+                                        "startDate": {"year": 1998},
+                                        "format": "TV",
+                                        "episodes": 26,
+                                        "status": "FINISHED",
+                                        "siteUrl": "https://anilist.co/anime/1",
+                                        "averageScore": 88,
+                                        "popularity": 10000,
+                                        "favourites": 1000,
+                                        "genres": ["Action", "Sci-Fi"],
+                                        "tags": [{"name": "Space", "rank": 92}, {"name": "Spoiler", "rank": 20}],
+                                        "studios": {"edges": [{"isMain": True, "node": {"id": 9, "name": "Bones"}}]},
+                                    },
+                                },
+                                {
+                                    "id": 100,
+                                    "status": "COMPLETED",
+                                    "score": 92,
+                                    "progress": 26,
+                                    "updatedAt": 1710000000,
+                                    "media": {
+                                        "id": 1,
+                                        "title": {"romaji": "Duplicate", "english": None, "native": None},
+                                        "coverImage": {},
+                                        "startDate": {},
+                                        "format": "TV",
+                                    },
+                                },
+                            ],
+                        }
+                    ]
+                },
+            }
+        },
+    )
+
+    profile = await anilist_client().fetch_user_anime_profile("taste_user")
+
+    assert profile["user"]["name"] == "taste_user"
+    assert len(profile["entries"]) == 1
+    assert profile["entries"][0]["titleRomaji"] == "Space Show"
+    assert profile["entries"][0]["tags"] == ["Space"]
+    assert profile["entries"][0]["studios"] == ["Bones"]
+
+
+@pytest.mark.asyncio
 async def test_anilist_raises_for_graphql_errors(httpx_mock):
     httpx_mock.add_response(url=ANILIST_ENDPOINT, json={"errors": [{"message": "bad"}]})
     httpx_mock.add_response(url=ANILIST_ENDPOINT, json={"errors": [{"message": "bad"}]})

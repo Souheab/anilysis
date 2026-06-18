@@ -277,6 +277,54 @@ query StudioEntityDetail($id: Int!, $page: Int!, $perPage: Int!) {
 """
 
 
+USER_ANIME_PROFILE_QUERY = """
+query UserAnimeProfile($username: String!) {
+  User(name: $username) {
+    id
+    name
+    avatar { large medium }
+    bannerImage
+    siteUrl
+  }
+  MediaListCollection(userName: $username, type: ANIME) {
+    lists {
+      name
+      status
+      entries {
+        id
+        status
+        score
+        progress
+        updatedAt
+        media {
+          id
+          title { romaji english native }
+          coverImage { large medium }
+          bannerImage
+          startDate { year }
+          format
+          episodes
+          status
+          siteUrl
+          averageScore
+          popularity
+          favourites
+          genres
+          tags { name rank }
+          studios {
+            edges {
+              isMain
+              node { id name }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+
 class AniListClient:
     _rate_lock: asyncio.Lock | None = None
     _rate_lock_loop: asyncio.AbstractEventLoop | None = None
@@ -651,6 +699,39 @@ class AniListClient:
         detail["relatedAnime"] = self._sorted_related_anime(anime_by_id)
         return detail
 
+    async def fetch_user_anime_profile(self, username: str) -> dict[str, Any]:
+        data = await self._graphql(USER_ANIME_PROFILE_QUERY, {"username": username})
+        user = data.get("User")
+        collection = data.get("MediaListCollection")
+        if not user:
+            raise AniListError(f"AniList user {username} was not found")
+        if not collection:
+            raise AniListError(f"AniList anime list for {username} was not found or is private")
+
+        entries: list[dict[str, Any]] = []
+        seen_entry_ids: set[int] = set()
+        seen_media_ids: set[int] = set()
+        for list_group in collection.get("lists") or []:
+            for entry in list_group.get("entries") or []:
+                media = entry.get("media") or {}
+                media_id = media.get("id")
+                entry_id = entry.get("id")
+                if not media_id:
+                    continue
+                if isinstance(entry_id, int):
+                    if entry_id in seen_entry_ids:
+                        continue
+                    seen_entry_ids.add(entry_id)
+                elif media_id in seen_media_ids:
+                    continue
+                seen_media_ids.add(media_id)
+                entries.append(self._normalize_profile_entry(entry, list_group.get("status")))
+
+        return {
+            "user": self._normalize_user(user),
+            "entries": entries,
+        }
+
     def _normalize_anime(self, media: dict[str, Any]) -> dict[str, Any]:
         title = media.get("title") or {}
         cover = media.get("coverImage") or {}
@@ -702,6 +783,40 @@ class AniListClient:
             **normalized,
             "roles": [],
             "isMain": None,
+        }
+
+    def _normalize_user(self, user: dict[str, Any]) -> dict[str, Any]:
+        avatar = user.get("avatar") or {}
+        return {
+            "id": user["id"],
+            "name": user.get("name") or "AniList user",
+            "avatarImageUrl": avatar.get("large") or avatar.get("medium"),
+            "bannerImageUrl": user.get("bannerImage"),
+            "siteUrl": user.get("siteUrl"),
+        }
+
+    def _normalize_profile_entry(self, entry: dict[str, Any], list_status: str | None) -> dict[str, Any]:
+        media = entry.get("media") or {}
+        normalized = self._normalize_anime(media)
+        studios: list[str] = []
+        for edge in ((media.get("studios") or {}).get("edges") or []):
+            node = edge.get("node") or {}
+            name = node.get("name")
+            if name and (edge.get("isMain") or name not in studios):
+                studios.append(name)
+        return {
+            **normalized,
+            "listStatus": entry.get("status") or list_status or "UNKNOWN",
+            "score": entry.get("score"),
+            "progress": entry.get("progress"),
+            "updatedAt": entry.get("updatedAt"),
+            "genres": [genre for genre in media.get("genres") or [] if isinstance(genre, str)],
+            "tags": [
+                tag.get("name")
+                for tag in media.get("tags") or []
+                if isinstance(tag, dict) and tag.get("name") and (tag.get("rank") or 0) >= 50
+            ],
+            "studios": studios,
         }
 
     def _sorted_related_anime(self, anime_by_id: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:

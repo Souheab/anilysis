@@ -231,3 +231,62 @@ class EntityCompareResponse(BaseModel):
     metrics: list[ComparisonMetricRow]
     overlap: list[RelatedAnimeSummary] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+
+
+class ProfileUserSummary(BaseModel):
+    id: int
+    name: str
+    avatarImageUrl: str | None = None
+    bannerImageUrl: str | None = None
+    siteUrl: str | None = None
+
+
+class ProfileListSummary(BaseModel):
+    totalEntries: int = 0
+    completedCount: int = 0
+    watchedEpisodes: int = 0
+    meanScore: float | None = None
+    statusCounts: dict[str, int] = Field(default_factory=dict)
+
+
+class ProfileDistributionRow(BaseModel):
+    label: str
+    count: int
+    percentage: float = 0
+
+
+class ProfileTasteRow(BaseModel):
+    label: str
+    count: int
+    meanScore: float | None = None
+
+
+class ProfileAnimeEntry(AnimeSearchResult):
+    listStatus: str
+    score: float | None = None
+    progress: int | None = None
+    episodes: int | None = None
+    averageScore: int | None = None
+    popularity: int | None = None
+    favourites: int | None = None
+    siteUrl: str | None = None
+    genres: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    studios: list[str] = Field(default_factory=list)
+    updatedAt: int | None = None
+
+
+class AnimeProfileResponse(BaseModel):
+    user: ProfileUserSummary
+    summary: ProfileListSummary
+    statusDistribution: list[ProfileDistributionRow] = Field(default_factory=list)
+    formatDistribution: list[ProfileDistributionRow] = Field(default_factory=list)
+    yearDistribution: list[ProfileDistributionRow] = Field(default_factory=list)
+    scoreDistribution: list[ProfileDistributionRow] = Field(default_factory=list)
+    topGenres: list[ProfileTasteRow] = Field(default_factory=list)
+    topTags: list[ProfileTasteRow] = Field(default_factory=list)
+    topStudios: list[ProfileTasteRow] = Field(default_factory=list)
+    highestRated: list[ProfileAnimeEntry] = Field(default_factory=list)
+    lowestRatedCompleted: list[ProfileAnimeEntry] = Field(default_factory=list)
+    longestWatched: list[ProfileAnimeEntry] = Field(default_factory=list)
+    recentlyUpdated: list[ProfileAnimeEntry] = Field(default_factory=list)

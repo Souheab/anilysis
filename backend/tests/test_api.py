@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app import api
+from app.anilist import AniListError
 from app.cache import AnimeCacheService
 
 
@@ -198,6 +199,91 @@ class ApiFakePopularStaffClient:
         ][:limit]
 
 
+class ApiFakeProfileClient:
+    def __init__(self, missing: bool = False) -> None:
+        self.profile_count = 0
+        self.missing = missing
+
+    async def fetch_user_anime_profile(self, username: str):
+        self.profile_count += 1
+        if self.missing:
+            raise AniListError(f"AniList user {username} was not found")
+        return {
+            "user": {
+                "id": 44,
+                "name": username,
+                "avatarImageUrl": "avatar.jpg",
+                "bannerImageUrl": "banner.jpg",
+                "siteUrl": f"https://anilist.co/user/{username}",
+            },
+            "entries": [
+                {
+                    "id": 1,
+                    "titleRomaji": "High Score",
+                    "titleEnglish": None,
+                    "titleNative": None,
+                    "coverImageUrl": "high.jpg",
+                    "year": 1998,
+                    "format": "TV",
+                    "episodes": 26,
+                    "siteUrl": None,
+                    "averageScore": 88,
+                    "popularity": 5000,
+                    "favourites": 500,
+                    "listStatus": "COMPLETED",
+                    "score": 92,
+                    "progress": 26,
+                    "updatedAt": 1710000000,
+                    "genres": ["Action", "Sci-Fi"],
+                    "tags": ["Space"],
+                    "studios": ["Bones"],
+                },
+                {
+                    "id": 2,
+                    "titleRomaji": "Low Score",
+                    "titleEnglish": None,
+                    "titleNative": None,
+                    "coverImageUrl": None,
+                    "year": 2011,
+                    "format": "MOVIE",
+                    "episodes": 1,
+                    "siteUrl": None,
+                    "averageScore": 65,
+                    "popularity": 200,
+                    "favourites": 10,
+                    "listStatus": "COMPLETED",
+                    "score": 42,
+                    "progress": 1,
+                    "updatedAt": 1700000000,
+                    "genres": ["Action"],
+                    "tags": ["Drama"],
+                    "studios": ["Bones"],
+                },
+                {
+                    "id": 3,
+                    "titleRomaji": "Planning Show",
+                    "titleEnglish": None,
+                    "titleNative": None,
+                    "coverImageUrl": None,
+                    "year": 2020,
+                    "format": "TV",
+                    "episodes": 12,
+                    "siteUrl": None,
+                    "averageScore": 75,
+                    "popularity": 1000,
+                    "favourites": 50,
+                    "listStatus": "PLANNING",
+                    "score": 0,
+                    "progress": 0,
+                    "updatedAt": 1690000000,
+                    "genres": ["Comedy"],
+                    "tags": [],
+                    "studios": ["Kyoto Animation"],
+                },
+            ],
+        }
+
+
 def test_search_endpoint_returns_normalized_results(client: TestClient, monkeypatch):
     monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeAniListClient()))
 
@@ -294,6 +380,48 @@ def test_staff_directed_anime_endpoint_accepts_role(client: TestClient, monkeypa
     assert response.status_code == 200
     assert response.json()[0]["titleRomaji"] == "Music Anime"
     assert response.json()[0]["roles"] == ["Music"]
+
+
+def test_profile_anime_endpoint_returns_analysis_and_uses_cache(client: TestClient, monkeypatch):
+    anilist = ApiFakeProfileClient()
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(anilist))
+
+    response = client.get("/api/profile/anime", params={"username": "taste_user"})
+    cached_response = client.get("/api/profile/anime", params={"username": "taste_user"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["user"]["name"] == "taste_user"
+    assert body["summary"]["totalEntries"] == 3
+    assert body["summary"]["completedCount"] == 2
+    assert body["summary"]["watchedEpisodes"] == 27
+    assert body["summary"]["meanScore"] == 67
+    assert body["summary"]["statusCounts"] == {"Completed": 2, "Planning": 1}
+    assert body["topGenres"][0]["label"] == "Action"
+    assert body["topGenres"][0]["count"] == 2
+    assert body["topTags"][0]["label"] == "Space"
+    assert body["topStudios"][0]["label"] == "Bones"
+    assert body["highestRated"][0]["titleRomaji"] == "High Score"
+    assert body["lowestRatedCompleted"][0]["titleRomaji"] == "Low Score"
+    assert cached_response.status_code == 200
+    assert cached_response.json() == body
+    assert anilist.profile_count == 1
+
+
+def test_profile_anime_endpoint_validates_username(client: TestClient, monkeypatch):
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeProfileClient()))
+
+    response = client.get("/api/profile/anime", params={"username": " "})
+
+    assert response.status_code == 422
+
+
+def test_profile_anime_endpoint_maps_missing_user_to_404(client: TestClient, monkeypatch):
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeProfileClient(missing=True)))
+
+    response = client.get("/api/profile/anime", params={"username": "missing_user"})
+
+    assert response.status_code == 404
 
 
 def test_compare_and_graph_endpoints_refresh_missing_cache(client: TestClient, monkeypatch):

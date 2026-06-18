@@ -38,12 +38,14 @@ import {
   compareEntities,
   DEFAULT_STAFF_POPULARITY_FILTERS,
   fetchGraph,
+  fetchAnimeProfile,
   fetchNodeDetail,
   fetchPopularStaff,
   fetchStaffDirectedAnime,
   searchAnime,
   searchEntities,
   type AnimeSearchResult,
+  type AnimeProfileResponse,
   type ComparisonMetricRow,
   type CompareResponse,
   type EntityCompareResponse,
@@ -53,6 +55,9 @@ import {
   type NodeDetail,
   type PopularStaffAnime,
   type PopularStaff,
+  type ProfileAnimeEntry,
+  type ProfileDistributionRow,
+  type ProfileTasteRow,
   type RelatedAnimeSummary,
   type ScoreBreakdown,
   type SharedStaff,
@@ -157,7 +162,7 @@ type FilterTemplateId = (typeof FILTER_TEMPLATES)[number]['id']
 type FilterSectionId = 'roles' | 'nodes' | 'edges' | 'favourites' | 'graph'
 type FilterSectionState = Record<FilterSectionId, boolean>
 type ResizePanel = 'left' | 'right'
-type AnalysisToolId = 'relationships' | 'popularStaff' | 'entityCompare'
+type AnalysisToolId = 'relationships' | 'popularStaff' | 'entityCompare' | 'profile'
 type PopularStaffKind = (typeof POPULAR_STAFF_KINDS)[number]['value']
 type AnalysisToolDefinition = {
   id: AnalysisToolId
@@ -189,6 +194,12 @@ const ANALYSIS_TOOLS: AnalysisToolDefinition[] = [
     label: 'Compare Entities',
     shortLabel: 'Compare',
     icon: ArrowRightLeft,
+  },
+  {
+    id: 'profile',
+    label: 'Profile Explorer',
+    shortLabel: 'Profile',
+    icon: Users,
   },
 ]
 
@@ -906,6 +917,11 @@ function App() {
   const [entityComparison, setEntityComparison] = useState<EntityCompareResponse | null>(null)
   const [entityCompareLoading, setEntityCompareLoading] = useState(false)
   const [entityCompareError, setEntityCompareError] = useState<string | null>(null)
+  const [profileUsername, setProfileUsername] = useState('')
+  const [submittedProfileUsername, setSubmittedProfileUsername] = useState('')
+  const [animeProfile, setAnimeProfile] = useState<AnimeProfileResponse | null>(null)
+  const [profileLoading, setProfileLoading] = useState(false)
+  const [profileError, setProfileError] = useState<string | null>(null)
   const [comparison, setComparison] = useState<CompareResponse | null>(null)
   const [graph, setGraph] = useState<GraphResponse | null>(null)
   const [nodeDetail, setNodeDetail] = useState<NodeDetail | null>(null)
@@ -953,8 +969,9 @@ function App() {
   const isRelationshipTool = activeTool.id === 'relationships'
   const isPopularStaffTool = activeTool.id === 'popularStaff'
   const isEntityCompareTool = activeTool.id === 'entityCompare'
+  const isProfileTool = activeTool.id === 'profile'
   const staffDetailsCollapsed = isPopularStaffTool && !selectedPopularStaff
-  const effectiveRightPanelCollapsed = rightPanelCollapsed || staffDetailsCollapsed || isEntityCompareTool
+  const effectiveRightPanelCollapsed = rightPanelCollapsed || staffDetailsCollapsed || isEntityCompareTool || isProfileTool
   const selectedEdge = useMemo(
     () => displayGraph?.edges.find((edge) => edge.data.id === selectedEdgeId) ?? null,
     [displayGraph, selectedEdgeId],
@@ -1082,6 +1099,33 @@ function App() {
   }, [entityCompareType, isEntityCompareTool, selectedEntities])
 
   useEffect(() => {
+    if (!isProfileTool || !submittedProfileUsername) {
+      return
+    }
+    const controller = new AbortController()
+    window.queueMicrotask(() => {
+      if (!controller.signal.aborted) {
+        setProfileLoading(true)
+        setProfileError(null)
+      }
+    })
+    void fetchAnimeProfile(submittedProfileUsername, controller.signal)
+      .then((nextProfile) => {
+        setAnimeProfile(nextProfile)
+        setProfileUsername(nextProfile.user.name)
+      })
+      .catch((requestError) => {
+        if (controller.signal.aborted) return
+        setAnimeProfile(null)
+        setProfileError(requestError instanceof Error ? requestError.message : 'Could not load AniList profile')
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setProfileLoading(false)
+      })
+    return () => controller.abort()
+  }, [isProfileTool, submittedProfileUsername])
+
+  useEffect(() => {
     if (!selectedNodeId || !displayGraph) {
       return
     }
@@ -1206,6 +1250,16 @@ function App() {
     setEntityComparison(null)
     setEntityCompareError(null)
     setEntityCompareLoading(false)
+  }
+
+  const submitProfileUsername = (username = profileUsername) => {
+    const trimmed = username.trim()
+    if (trimmed.length < 2) {
+      setProfileError('Enter at least two characters.')
+      return
+    }
+    setProfileError(null)
+    setSubmittedProfileUsername(trimmed)
   }
 
   const assignAnime = useCallback(
@@ -1399,6 +1453,13 @@ function App() {
             <ArrowRightLeft size={18} />
             <span>Compare {entityTypeLabel(entityCompareType).toLowerCase()} metrics</span>
           </div>
+        ) : isProfileTool ? (
+          <ProfileSearchBar
+            username={profileUsername}
+            loading={profileLoading}
+            onUsernameChange={setProfileUsername}
+            onSubmit={submitProfileUsername}
+          />
         ) : (
           <CommandSearch
             activeSlotIndex={activeSlotIndex}
@@ -1422,7 +1483,7 @@ function App() {
       </header>
 
       <div
-        className={`workspace ${isPopularStaffTool ? 'popular-staff-workspace' : ''} ${isEntityCompareTool ? 'entity-compare-workspace' : ''} ${leftPanelCollapsed ? 'left-collapsed' : ''} ${effectiveRightPanelCollapsed ? 'right-collapsed' : ''}`}
+        className={`workspace ${isPopularStaffTool ? 'popular-staff-workspace' : ''} ${isEntityCompareTool ? 'entity-compare-workspace' : ''} ${isProfileTool ? 'profile-workspace' : ''} ${leftPanelCollapsed ? 'left-collapsed' : ''} ${effectiveRightPanelCollapsed ? 'right-collapsed' : ''}`}
         style={
           {
             '--left-panel-width': `${leftPanelWidth}px`,
@@ -1497,6 +1558,15 @@ function App() {
               onSelect={assignEntity}
               onClear={clearEntitySlot}
             />
+          ) : isProfileTool ? (
+            <ProfileControls
+              username={profileUsername}
+              profile={animeProfile}
+              loading={profileLoading}
+              error={profileError}
+              onUsernameChange={setProfileUsername}
+              onSubmit={submitProfileUsername}
+            />
           ) : null}
           <button
             type="button"
@@ -1556,6 +1626,13 @@ function App() {
             comparison={entityComparison}
             loading={entityCompareLoading}
             error={entityCompareError}
+          />
+        ) : isProfileTool ? (
+          <ProfileDashboard
+            profile={animeProfile}
+            loading={profileLoading}
+            error={profileError}
+            hasSubmitted={Boolean(submittedProfileUsername)}
           />
         ) : null}
 
@@ -1666,6 +1743,287 @@ function ToolRail({
       })}
     </nav>
   )
+}
+
+function ProfileSearchBar({
+  username,
+  loading,
+  onUsernameChange,
+  onSubmit,
+}: {
+  username: string
+  loading: boolean
+  onUsernameChange: (username: string) => void
+  onSubmit: () => void
+}) {
+  return (
+    <form
+      className="profile-search-bar"
+      onSubmit={(event) => {
+        event.preventDefault()
+        onSubmit()
+      }}
+    >
+      <Search size={18} />
+      <input
+        value={username}
+        onChange={(event) => onUsernameChange(event.target.value)}
+        placeholder="Enter AniList username..."
+      />
+      <button type="submit" disabled={loading}>
+        {loading ? <Loader2 className="spin" size={17} /> : <ArrowRightLeft size={17} />}
+      </button>
+    </form>
+  )
+}
+
+function ProfileControls({
+  username,
+  profile,
+  loading,
+  error,
+  onUsernameChange,
+  onSubmit,
+}: {
+  username: string
+  profile: AnimeProfileResponse | null
+  loading: boolean
+  error: string | null
+  onUsernameChange: (username: string) => void
+  onSubmit: () => void
+}) {
+  return (
+    <>
+      <PanelHeader title="Profile Explorer" />
+      <form
+        className="profile-control-card"
+        onSubmit={(event) => {
+          event.preventDefault()
+          onSubmit()
+        }}
+      >
+        <label className="profile-input">
+          <span>AniList username</span>
+          <input value={username} onChange={(event) => onUsernameChange(event.target.value)} placeholder="username" />
+        </label>
+        <button type="submit" className="analysis-button" disabled={loading}>
+          {loading ? <Loader2 className="spin" size={17} /> : <Search size={17} />}
+          {loading ? 'Loading profile...' : 'Analyze profile'}
+        </button>
+        {error ? (
+          <div className="inline-error">
+            <strong>Error occurred:</strong>
+            <span>{error}</span>
+          </div>
+        ) : null}
+      </form>
+      {profile ? (
+        <section className="score-card profile-mini-summary">
+          <div className="score-title">
+            <span>{profile.user.name}</span>
+            <Users size={15} />
+          </div>
+          <div className="score-grid">
+            <div className="score-row">
+              <span>Total anime</span>
+              <strong>{profile.summary.totalEntries.toLocaleString()}</strong>
+            </div>
+            <div className="score-row">
+              <span>Completed</span>
+              <strong>{profile.summary.completedCount.toLocaleString()}</strong>
+            </div>
+            <div className="score-row">
+              <span>Mean score</span>
+              <strong>{formatProfileScore(profile.summary.meanScore)}</strong>
+            </div>
+          </div>
+        </section>
+      ) : null}
+    </>
+  )
+}
+
+function ProfileDashboard({
+  profile,
+  loading,
+  error,
+  hasSubmitted,
+}: {
+  profile: AnimeProfileResponse | null
+  loading: boolean
+  error: string | null
+  hasSubmitted: boolean
+}) {
+  return (
+    <section className="graph-panel profile-panel">
+      {!hasSubmitted && !profile ? (
+        <div className="profile-empty">
+          <Users size={28} />
+          <span>Enter a public AniList username to explore anime-list taste signals.</span>
+        </div>
+      ) : null}
+      {loading ? <div className="popular-staff-state"><Loader2 className="spin" size={20} /> Loading AniList profile...</div> : null}
+      {!loading && error && !profile ? <div className="popular-staff-state error-text">{error}</div> : null}
+      {profile && !loading ? (
+        <div className="profile-dashboard">
+          <ProfileHero profile={profile} />
+          <ProfileMetricGrid profile={profile} />
+          <div className="profile-grid two">
+            <ProfileDistribution title="Status" rows={profile.statusDistribution} />
+            <ProfileDistribution title="Formats" rows={profile.formatDistribution} />
+          </div>
+          <div className="profile-grid three">
+            <ProfileTasteList title="Genres" rows={profile.topGenres} />
+            <ProfileTasteList title="Tags" rows={profile.topTags} />
+            <ProfileTasteList title="Studios" rows={profile.topStudios} />
+          </div>
+          <div className="profile-grid two">
+            <ProfileDistribution title="Release Decades" rows={profile.yearDistribution} />
+            <ProfileDistribution title="Score Buckets" rows={profile.scoreDistribution} />
+          </div>
+          <ProfileAnimeSection title="Highest Rated" items={profile.highestRated} />
+          <ProfileAnimeSection title="Lowest Rated Completed" items={profile.lowestRatedCompleted} />
+          <ProfileAnimeSection title="Longest Watched" items={profile.longestWatched} />
+          <ProfileAnimeSection title="Recently Updated" items={profile.recentlyUpdated} showUpdated />
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function ProfileHero({ profile }: { profile: AnimeProfileResponse }) {
+  return (
+    <header className="profile-hero">
+      {profile.user.bannerImageUrl ? <img className="profile-banner" src={profile.user.bannerImageUrl} alt="" /> : null}
+      <div className="profile-hero-content">
+        {profile.user.avatarImageUrl ? <img src={profile.user.avatarImageUrl} alt="" /> : <span className="profile-avatar"><Users size={25} /></span>}
+        <span>
+          <h2>{profile.user.name}</h2>
+          <small>{profile.summary.totalEntries.toLocaleString()} anime in public AniList lists</small>
+        </span>
+        {profile.user.siteUrl ? (
+          <a className="staff-profile-link" href={profile.user.siteUrl} target="_blank" rel="noreferrer">
+            Open AniList profile
+          </a>
+        ) : null}
+      </div>
+    </header>
+  )
+}
+
+function ProfileMetricGrid({ profile }: { profile: AnimeProfileResponse }) {
+  const metrics = [
+    { label: 'Total Anime', value: profile.summary.totalEntries.toLocaleString() },
+    { label: 'Completed', value: profile.summary.completedCount.toLocaleString() },
+    { label: 'Mean Score', value: formatProfileScore(profile.summary.meanScore) },
+    { label: 'Episodes Watched', value: profile.summary.watchedEpisodes.toLocaleString() },
+  ]
+  return (
+    <section className="profile-metrics">
+      {metrics.map((metric) => (
+        <article key={metric.label} className="profile-metric">
+          <span>{metric.label}</span>
+          <strong>{metric.value}</strong>
+        </article>
+      ))}
+    </section>
+  )
+}
+
+function ProfileDistribution({ title, rows }: { title: string; rows: ProfileDistributionRow[] }) {
+  return (
+    <section className="profile-card">
+      <div className="section-title compact">
+        <h4>{title}</h4>
+      </div>
+      <div className="profile-bars">
+        {rows.slice(0, 8).map((row) => (
+          <div key={row.label} className="profile-bar-row">
+            <span>{row.label}</span>
+            <div className="profile-bar" aria-hidden="true">
+              <i style={{ width: `${Math.max(3, row.percentage)}%` }} />
+            </div>
+            <strong>{row.count.toLocaleString()}</strong>
+          </div>
+        ))}
+        {rows.length === 0 ? <p className="muted">No data available.</p> : null}
+      </div>
+    </section>
+  )
+}
+
+function ProfileTasteList({ title, rows }: { title: string; rows: ProfileTasteRow[] }) {
+  return (
+    <section className="profile-card">
+      <div className="section-title compact">
+        <h4>{title}</h4>
+      </div>
+      <div className="profile-taste-list">
+        {rows.map((row) => (
+          <div key={row.label} className="profile-taste-row">
+            <span>
+              <strong>{row.label}</strong>
+              <small>{row.count.toLocaleString()} anime</small>
+            </span>
+            <em>{formatProfileScore(row.meanScore)}</em>
+          </div>
+        ))}
+        {rows.length === 0 ? <p className="muted">No data available.</p> : null}
+      </div>
+    </section>
+  )
+}
+
+function ProfileAnimeSection({
+  title,
+  items,
+  showUpdated = false,
+}: {
+  title: string
+  items: ProfileAnimeEntry[]
+  showUpdated?: boolean
+}) {
+  return (
+    <section className="profile-card">
+      <div className="section-title compact">
+        <h4>{title}</h4>
+      </div>
+      <div className="profile-anime-grid">
+        {items.map((anime) => (
+          <article key={`${title}-${anime.id}`} className="profile-anime-card">
+            <AnimeThumb anime={anime} />
+            <span>
+              <strong>{titleFor(anime)}</strong>
+              <small>{profileAnimeMeta(anime, showUpdated)}</small>
+              <em>{profileAnimeSignals(anime)}</em>
+            </span>
+          </article>
+        ))}
+        {items.length === 0 ? <p className="muted">No anime found for this slice.</p> : null}
+      </div>
+    </section>
+  )
+}
+
+function formatProfileScore(value?: number | null) {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value.toLocaleString(undefined, { maximumFractionDigits: 1 }) : '--'
+}
+
+function profileAnimeMeta(anime: ProfileAnimeEntry, showUpdated: boolean) {
+  const updated = showUpdated && anime.updatedAt ? new Date(anime.updatedAt * 1000).toLocaleDateString() : null
+  return [
+    formatMeta(anime),
+    anime.score ? `${formatProfileScore(anime.score)} user score` : null,
+    anime.progress ? `${anime.progress} watched` : null,
+    updated ? `Updated ${updated}` : null,
+  ].filter(Boolean).join(' • ')
+}
+
+function profileAnimeSignals(anime: ProfileAnimeEntry) {
+  return [
+    anime.genres.slice(0, 2).join(', '),
+    anime.studios[0],
+  ].filter(Boolean).join(' / ')
 }
 
 function EntityCompareControls({
