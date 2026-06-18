@@ -22,6 +22,10 @@ from app.schemas import (
     ProfileAnimeEntry,
     ProfileDistributionRow,
     ProfileListSummary,
+    ProfileScoreBucket,
+    ProfileScoreComparison,
+    ProfileScoreDeltaRow,
+    ProfileTasteAnalysisRow,
     ProfileTasteRow,
     ProfileUserSummary,
     RefreshResponse,
@@ -585,6 +589,7 @@ class AnimeCacheService:
         total = len(entries)
         status_counts = self._count_by(entries, lambda entry: self._status_label(entry.listStatus))
         watched_episodes = sum(self._watched_episode_count(entry) for entry in entries)
+        score_scale = self._profile_score_scale(scored_entries)
 
         return AnimeProfileResponse(
             user=ProfileUserSummary(**data["user"]),
@@ -602,6 +607,11 @@ class AnimeCacheService:
             topGenres=self._taste_rows(entries, lambda entry: entry.genres),
             topTags=self._taste_rows(entries, lambda entry: entry.tags),
             topStudios=self._taste_rows(entries, lambda entry: entry.studios),
+            scoreComparison=self._score_comparison(scored_entries, score_scale),
+            genreTaste=self._taste_analysis_rows(entries, lambda entry: entry.genres, score_scale),
+            tagTaste=self._taste_analysis_rows(entries, lambda entry: entry.tags, score_scale),
+            studioTaste=self._taste_analysis_rows(entries, lambda entry: entry.studios, score_scale),
+            staffAffinity=self._staff_affinity_rows(entries, score_scale),
             highestRated=sorted(
                 scored_entries,
                 key=lambda entry: (entry.score or 0, entry.averageScore or 0, entry.popularity or 0),
@@ -661,6 +671,157 @@ class AnimeCacheService:
         ]
         rows.sort(key=lambda row: (row.count, row.meanScore or 0, row.label), reverse=True)
         return rows[:limit]
+
+    def _score_comparison(self, entries: list[ProfileAnimeEntry], score_scale: float) -> ProfileScoreComparison:
+        comparable = [entry for entry in entries if self._normalized_community_score(entry, score_scale) is not None]
+        deltas = [self._score_delta_row(entry, score_scale) for entry in comparable]
+        user_scores = [float(entry.score or 0) for entry in comparable]
+        community_scores = [
+            score for entry in comparable
+            if (score := self._normalized_community_score(entry, score_scale)) is not None
+        ]
+        mean_user = round(sum(user_scores) / len(user_scores), 1) if user_scores else None
+        mean_community = round(sum(community_scores) / len(community_scores), 1) if community_scores else None
+        mean_delta = round(mean_user - mean_community, 1) if mean_user is not None and mean_community is not None else None
+        return ProfileScoreComparison(
+            meanUserScore=mean_user,
+            meanCommunityScore=mean_community,
+            meanDelta=mean_delta,
+            overRated=sorted(deltas, key=lambda row: (row.scoreDelta or 0, row.score or 0), reverse=True)[:6],
+            underRated=sorted(deltas, key=lambda row: (row.scoreDelta or 0, -(row.score or 0)))[:6],
+            buckets=self._score_delta_buckets(comparable, score_scale),
+        )
+
+    def _taste_analysis_rows(
+        self,
+        entries: list[ProfileAnimeEntry],
+        labels_for: Callable[[ProfileAnimeEntry], list[str]],
+        score_scale: float,
+        limit: int = 8,
+    ) -> list[ProfileTasteAnalysisRow]:
+        grouped: dict[str, list[ProfileAnimeEntry]] = {}
+        for entry in entries:
+            for label in labels_for(entry):
+                grouped.setdefault(label, []).append(entry)
+        rows = [
+            self._taste_analysis_row(label, label_entries, score_scale)
+            for label, label_entries in grouped.items()
+        ]
+        rows.sort(key=lambda row: (row.count, row.meanScore or 0, row.meanDelta or -999, row.label), reverse=True)
+        return rows[:limit]
+
+    def _staff_affinity_rows(
+        self,
+        entries: list[ProfileAnimeEntry],
+        score_scale: float,
+        limit: int = 8,
+    ) -> list[ProfileTasteAnalysisRow]:
+        grouped: dict[str, list[ProfileAnimeEntry]] = {}
+        roles_by_staff: dict[str, set[str]] = {}
+        for entry in entries:
+            for staff in entry.staff:
+                grouped.setdefault(staff.name, []).append(entry)
+                roles_by_staff.setdefault(staff.name, set()).update(staff.roles)
+        rows = [
+            self._taste_analysis_row(
+                label,
+                label_entries,
+                score_scale,
+                role_summary=", ".join(sorted(roles_by_staff.get(label, set()))) or None,
+            )
+            for label, label_entries in grouped.items()
+        ]
+        rows.sort(key=lambda row: (row.count, row.meanScore or 0, row.meanDelta or -999, row.label), reverse=True)
+        return rows[:limit]
+
+    def _taste_analysis_row(
+        self,
+        label: str,
+        entries: list[ProfileAnimeEntry],
+        score_scale: float,
+        role_summary: str | None = None,
+    ) -> ProfileTasteAnalysisRow:
+        scored = [entry for entry in entries if isinstance(entry.score, (int, float)) and entry.score > 0]
+        community_scores = [
+            score for entry in scored
+            if (score := self._normalized_community_score(entry, score_scale)) is not None
+        ]
+        user_mean = self._mean_score(scored)
+        community_mean = round(sum(community_scores) / len(community_scores), 1) if community_scores else None
+        return ProfileTasteAnalysisRow(
+            label=label,
+            count=len(entries),
+            completedCount=len([entry for entry in entries if entry.listStatus == "COMPLETED"]),
+            meanScore=user_mean,
+            meanCommunityScore=community_mean,
+            meanDelta=round(user_mean - community_mean, 1) if user_mean is not None and community_mean is not None else None,
+            roleSummary=role_summary,
+            representativeAnime=[
+                AnimeSearchResult(
+                    id=entry.id,
+                    titleRomaji=entry.titleRomaji,
+                    titleEnglish=entry.titleEnglish,
+                    titleNative=entry.titleNative,
+                    coverImageUrl=entry.coverImageUrl,
+                    year=entry.year,
+                    format=entry.format,
+                )
+                for entry in sorted(entries, key=lambda item: (item.score or 0, item.popularity or 0), reverse=True)[:3]
+            ],
+        )
+
+    def _profile_score_scale(self, entries: list[ProfileAnimeEntry]) -> float:
+        scores = [float(entry.score or 0) for entry in entries if isinstance(entry.score, (int, float)) and entry.score > 0]
+        return 10.0 if scores and max(scores) <= 10 else 100.0
+
+    def _normalized_community_score(self, entry: ProfileAnimeEntry, score_scale: float) -> float | None:
+        if not isinstance(entry.averageScore, (int, float)) or entry.averageScore <= 0:
+            return None
+        score = float(entry.averageScore)
+        if score_scale <= 10:
+            score /= 10
+        return round(score, 1)
+
+    def _score_delta_row(self, entry: ProfileAnimeEntry, score_scale: float) -> ProfileScoreDeltaRow:
+        community_score = self._normalized_community_score(entry, score_scale)
+        user_score = float(entry.score or 0) if isinstance(entry.score, (int, float)) else None
+        return ProfileScoreDeltaRow(
+            id=entry.id,
+            titleRomaji=entry.titleRomaji,
+            titleEnglish=entry.titleEnglish,
+            titleNative=entry.titleNative,
+            coverImageUrl=entry.coverImageUrl,
+            year=entry.year,
+            format=entry.format,
+            score=user_score,
+            averageScore=entry.averageScore,
+            normalizedCommunityScore=community_score,
+            scoreDelta=round(user_score - community_score, 1) if user_score is not None and community_score is not None else None,
+            siteUrl=entry.siteUrl,
+        )
+
+    def _score_delta_buckets(self, entries: list[ProfileAnimeEntry], score_scale: float) -> list[ProfileScoreBucket]:
+        buckets: dict[str, list[float]] = {"Below community": [], "Near community": [], "Above community": []}
+        threshold = 0.75 if score_scale <= 10 else 7.5
+        for entry in entries:
+            community_score = self._normalized_community_score(entry, score_scale)
+            if community_score is None or not isinstance(entry.score, (int, float)):
+                continue
+            delta = float(entry.score) - community_score
+            if delta > threshold:
+                buckets["Above community"].append(delta)
+            elif delta < -threshold:
+                buckets["Below community"].append(delta)
+            else:
+                buckets["Near community"].append(delta)
+        return [
+            ProfileScoreBucket(
+                label=label,
+                count=len(values),
+                meanDelta=round(sum(values) / len(values), 1) if values else None,
+            )
+            for label, values in buckets.items()
+        ]
 
     def _score_distribution(self, entries: list[ProfileAnimeEntry]) -> list[ProfileDistributionRow]:
         if not entries:

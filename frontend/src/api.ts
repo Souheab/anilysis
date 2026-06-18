@@ -224,6 +224,48 @@ export interface ProfileTasteRow {
   meanScore?: number | null
 }
 
+export interface ProfileStaffCredit {
+  id: number
+  name: string
+  imageUrl?: string | null
+  siteUrl?: string | null
+  roles: string[]
+}
+
+export interface ProfileScoreDeltaRow extends AnimeSearchResult {
+  score?: number | null
+  averageScore?: number | null
+  normalizedCommunityScore?: number | null
+  scoreDelta?: number | null
+  siteUrl?: string | null
+}
+
+export interface ProfileScoreBucket {
+  label: string
+  count: number
+  meanDelta?: number | null
+}
+
+export interface ProfileScoreComparison {
+  meanUserScore?: number | null
+  meanCommunityScore?: number | null
+  meanDelta?: number | null
+  overRated: ProfileScoreDeltaRow[]
+  underRated: ProfileScoreDeltaRow[]
+  buckets: ProfileScoreBucket[]
+}
+
+export interface ProfileTasteAnalysisRow {
+  label: string
+  count: number
+  completedCount: number
+  meanScore?: number | null
+  meanCommunityScore?: number | null
+  meanDelta?: number | null
+  roleSummary?: string | null
+  representativeAnime: AnimeSearchResult[]
+}
+
 export interface ProfileAnimeEntry extends AnimeSearchResult {
   listStatus: string
   score?: number | null
@@ -236,6 +278,7 @@ export interface ProfileAnimeEntry extends AnimeSearchResult {
   genres: string[]
   tags: string[]
   studios: string[]
+  staff: ProfileStaffCredit[]
   updatedAt?: number | null
 }
 
@@ -249,6 +292,11 @@ export interface AnimeProfileResponse {
   topGenres: ProfileTasteRow[]
   topTags: ProfileTasteRow[]
   topStudios: ProfileTasteRow[]
+  scoreComparison: ProfileScoreComparison
+  genreTaste: ProfileTasteAnalysisRow[]
+  tagTaste: ProfileTasteAnalysisRow[]
+  studioTaste: ProfileTasteAnalysisRow[]
+  staffAffinity: ProfileTasteAnalysisRow[]
   highestRated: ProfileAnimeEntry[]
   lowestRatedCompleted: ProfileAnimeEntry[]
   longestWatched: ProfileAnimeEntry[]

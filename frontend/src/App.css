@@ -1850,9 +1850,130 @@ button {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.profile-grid.compact-gap {
+  gap: 10px;
+}
+
 .profile-card {
   min-width: 0;
   padding: 16px;
+}
+
+.profile-score-comparison {
+  display: grid;
+  gap: 14px;
+}
+
+.profile-comparison-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.profile-comparison-metrics span,
+.profile-score-buckets span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 8px;
+  background: rgba(3, 12, 24, 0.32);
+}
+
+.profile-comparison-metrics small,
+.profile-score-buckets small {
+  overflow: hidden;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.profile-comparison-metrics strong,
+.profile-score-buckets strong {
+  color: #f8fafc;
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.profile-score-buckets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.profile-score-buckets em {
+  color: #93c5fd;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.profile-delta-list {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 8px;
+  background: rgba(3, 12, 24, 0.28);
+}
+
+.profile-delta-list h5 {
+  margin: 0;
+  color: #dbeafe;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.profile-delta-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.profile-delta-row strong,
+.profile-delta-row small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-delta-row strong {
+  color: #f8fafc;
+  font-size: 12px;
+}
+
+.profile-delta-row small {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.profile-delta-row em,
+.profile-taste-scores b,
+.profile-comparison-metrics strong.positive,
+.profile-comparison-metrics strong.negative,
+.profile-comparison-metrics strong.neutral {
+  font-style: normal;
+  font-weight: 900;
+}
+
+.positive {
+  color: #86efac !important;
+}
+
+.negative {
+  color: #fca5a5 !important;
+}
+
+.neutral {
+  color: #93c5fd !important;
 }
 
 .profile-bars,
@@ -1943,7 +2064,7 @@ button {
 
 .profile-taste-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(74px, auto);
   align-items: center;
   gap: 10px;
   padding: 9px 0;
@@ -1978,6 +2099,16 @@ button {
   color: #93c5fd;
   font-style: normal;
   font-weight: 900;
+}
+
+.profile-taste-scores {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+}
+
+.profile-taste-scores small {
+  text-align: right;
 }
 
 .profile-anime-grid {
@@ -3572,7 +3703,9 @@ button {
   .profile-metrics,
   .profile-grid.two,
   .profile-grid.three,
-  .profile-anime-grid {
+  .profile-anime-grid,
+  .profile-comparison-metrics,
+  .profile-score-buckets {
     grid-template-columns: 1fr;
   }
 

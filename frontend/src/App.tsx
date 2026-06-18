@@ -60,7 +60,9 @@ import {
   type PopularStaff,
   type ProfileAnimeEntry,
   type ProfileDistributionRow,
-  type ProfileTasteRow,
+  type ProfileScoreComparison,
+  type ProfileScoreDeltaRow,
+  type ProfileTasteAnalysisRow,
   type RelatedAnimeSummary,
   type ScoreBreakdown,
   type SharedStaff,
@@ -2158,14 +2160,18 @@ function ProfileDashboard({
         <div className="profile-dashboard">
           <ProfileHero profile={profile} />
           <ProfileMetricGrid profile={profile} />
+          <ProfileScoreComparisonCard comparison={profile.scoreComparison} />
           <div className="profile-grid two">
             <ProfileDistribution title="Status" rows={profile.statusDistribution} />
             <ProfileDistribution title="Formats" rows={profile.formatDistribution} />
           </div>
-          <div className="profile-grid three">
-            <ProfileTasteList title="Genres" rows={profile.topGenres} />
-            <ProfileTasteList title="Tags" rows={profile.topTags} />
-            <ProfileTasteList title="Studios" rows={profile.topStudios} />
+          <div className="profile-grid two">
+            <ProfileTasteAnalyzer title="Genre Taste" rows={profile.genreTaste} />
+            <ProfileTasteAnalyzer title="Tag Taste" rows={profile.tagTaste} />
+          </div>
+          <div className="profile-grid two">
+            <ProfileTasteAnalyzer title="Studio Taste" rows={profile.studioTaste} />
+            <ProfileTasteAnalyzer title="Staff Affinity" rows={profile.staffAffinity} />
           </div>
           <div className="profile-grid two">
             <ProfileDistribution title="Release Decades" rows={profile.yearDistribution} />
@@ -2267,7 +2273,62 @@ function ProfileScoreHistogram({ rows }: { rows: ProfileDistributionRow[] }) {
   )
 }
 
-function ProfileTasteList({ title, rows }: { title: string; rows: ProfileTasteRow[] }) {
+function ProfileScoreComparisonCard({ comparison }: { comparison: ProfileScoreComparison }) {
+  return (
+    <section className="profile-card profile-score-comparison">
+      <div className="section-title compact">
+        <h4>Score vs Community</h4>
+      </div>
+      <div className="profile-comparison-metrics">
+        <span>
+          <small>User mean</small>
+          <strong>{formatProfileScore(comparison.meanUserScore)}</strong>
+        </span>
+        <span>
+          <small>Community mean</small>
+          <strong>{formatProfileScore(comparison.meanCommunityScore)}</strong>
+        </span>
+        <span>
+          <small>Average delta</small>
+          <strong className={deltaClassName(comparison.meanDelta)}>{formatDelta(comparison.meanDelta)}</strong>
+        </span>
+      </div>
+      <div className="profile-score-buckets">
+        {comparison.buckets.map((bucket) => (
+          <span key={bucket.label}>
+            <strong>{bucket.count.toLocaleString()}</strong>
+            <small>{bucket.label}</small>
+            <em>{formatDelta(bucket.meanDelta)}</em>
+          </span>
+        ))}
+      </div>
+      <div className="profile-grid two compact-gap">
+        <ProfileDeltaList title="You liked more" rows={comparison.overRated} />
+        <ProfileDeltaList title="You liked less" rows={comparison.underRated} />
+      </div>
+    </section>
+  )
+}
+
+function ProfileDeltaList({ title, rows }: { title: string; rows: ProfileScoreDeltaRow[] }) {
+  return (
+    <div className="profile-delta-list">
+      <h5>{title}</h5>
+      {rows.slice(0, 4).map((row) => (
+        <div key={`${title}-${row.id}`} className="profile-delta-row">
+          <span>
+            <strong>{titleFor(row)}</strong>
+            <small>{formatProfileScore(row.score)} vs {formatProfileScore(row.normalizedCommunityScore)}</small>
+          </span>
+          <em className={deltaClassName(row.scoreDelta)}>{formatDelta(row.scoreDelta)}</em>
+        </div>
+      ))}
+      {rows.length === 0 ? <p className="muted">No comparable scores.</p> : null}
+    </div>
+  )
+}
+
+function ProfileTasteAnalyzer({ title, rows }: { title: string; rows: ProfileTasteAnalysisRow[] }) {
   return (
     <section className="profile-card">
       <div className="section-title compact">
@@ -2278,9 +2339,18 @@ function ProfileTasteList({ title, rows }: { title: string; rows: ProfileTasteRo
           <div key={row.label} className="profile-taste-row">
             <span>
               <strong>{row.label}</strong>
-              <small>{row.count.toLocaleString()} anime</small>
+              <small>
+                {row.count.toLocaleString()} anime
+                {row.completedCount ? ` / ${row.completedCount.toLocaleString()} completed` : ''}
+              </small>
+              {row.roleSummary ? <small>{row.roleSummary}</small> : null}
+              {row.representativeAnime.length ? <small>{row.representativeAnime.map(titleFor).join(', ')}</small> : null}
             </span>
-            <em>{formatProfileScore(row.meanScore)}</em>
+            <span className="profile-taste-scores">
+              <em>{formatProfileScore(row.meanScore)}</em>
+              <small>vs {formatProfileScore(row.meanCommunityScore)}</small>
+              <b className={deltaClassName(row.meanDelta)}>{formatDelta(row.meanDelta)}</b>
+            </span>
           </div>
         ))}
         {rows.length === 0 ? <p className="muted">No data available.</p> : null}
@@ -2322,6 +2392,17 @@ function ProfileAnimeSection({
 
 function formatProfileScore(value?: number | null) {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value.toLocaleString(undefined, { maximumFractionDigits: 1 }) : '--'
+}
+
+function formatDelta(value?: number | null) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '--'
+  const formatted = Math.abs(value).toLocaleString(undefined, { maximumFractionDigits: 1 })
+  return value > 0 ? `+${formatted}` : value < 0 ? `-${formatted}` : '0'
+}
+
+function deltaClassName(value?: number | null) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value === 0) return 'neutral'
+  return value > 0 ? 'positive' : 'negative'
 }
 
 function scoreBucketValue(label: string) {

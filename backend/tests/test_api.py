@@ -237,6 +237,15 @@ class ApiFakeProfileClient:
                     "genres": ["Action", "Sci-Fi"],
                     "tags": ["Space"],
                     "studios": ["Bones"],
+                    "staff": [
+                        {
+                            "id": 100,
+                            "name": "Creative Lead",
+                            "imageUrl": "staff.jpg",
+                            "siteUrl": "https://anilist.co/staff/100",
+                            "roles": ["Director"],
+                        }
+                    ],
                 },
                 {
                     "id": 2,
@@ -258,6 +267,15 @@ class ApiFakeProfileClient:
                     "genres": ["Action"],
                     "tags": ["Drama"],
                     "studios": ["Bones"],
+                    "staff": [
+                        {
+                            "id": 100,
+                            "name": "Creative Lead",
+                            "imageUrl": "staff.jpg",
+                            "siteUrl": "https://anilist.co/staff/100",
+                            "roles": ["Director", "Script"],
+                        }
+                    ],
                 },
                 {
                     "id": 3,
@@ -279,6 +297,15 @@ class ApiFakeProfileClient:
                     "genres": ["Comedy"],
                     "tags": [],
                     "studios": ["Kyoto Animation"],
+                    "staff": [
+                        {
+                            "id": 200,
+                            "name": "Music Person",
+                            "imageUrl": None,
+                            "siteUrl": None,
+                            "roles": ["Music"],
+                        }
+                    ],
                 },
             ],
         }
@@ -421,6 +448,20 @@ def test_profile_anime_endpoint_returns_analysis_and_uses_cache(client: TestClie
     assert body["topGenres"][0]["count"] == 2
     assert body["topTags"][0]["label"] == "Space"
     assert body["topStudios"][0]["label"] == "Bones"
+    assert body["scoreComparison"]["meanUserScore"] == 67
+    assert body["scoreComparison"]["meanCommunityScore"] == 76.5
+    assert body["scoreComparison"]["meanDelta"] == -9.5
+    assert body["scoreComparison"]["overRated"][0]["titleRomaji"] == "High Score"
+    assert body["scoreComparison"]["overRated"][0]["scoreDelta"] == 4
+    assert body["scoreComparison"]["underRated"][0]["titleRomaji"] == "Low Score"
+    assert body["scoreComparison"]["underRated"][0]["scoreDelta"] == -23
+    assert body["genreTaste"][0]["label"] == "Action"
+    assert body["genreTaste"][0]["meanCommunityScore"] == 76.5
+    assert body["genreTaste"][0]["meanDelta"] == -9.5
+    assert body["studioTaste"][0]["label"] == "Bones"
+    assert body["staffAffinity"][0]["label"] == "Creative Lead"
+    assert body["staffAffinity"][0]["count"] == 2
+    assert body["staffAffinity"][0]["roleSummary"] == "Director, Script"
     assert body["highestRated"][0]["titleRomaji"] == "High Score"
     assert body["lowestRatedCompleted"][0]["titleRomaji"] == "Low Score"
     assert cached_response.status_code == 200

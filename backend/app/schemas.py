@@ -261,6 +261,48 @@ class ProfileTasteRow(BaseModel):
     meanScore: float | None = None
 
 
+class ProfileStaffCredit(BaseModel):
+    id: int
+    name: str
+    imageUrl: str | None = None
+    siteUrl: str | None = None
+    roles: list[str] = Field(default_factory=list)
+
+
+class ProfileScoreDeltaRow(AnimeSearchResult):
+    score: float | None = None
+    averageScore: int | None = None
+    normalizedCommunityScore: float | None = None
+    scoreDelta: float | None = None
+    siteUrl: str | None = None
+
+
+class ProfileScoreBucket(BaseModel):
+    label: str
+    count: int = 0
+    meanDelta: float | None = None
+
+
+class ProfileScoreComparison(BaseModel):
+    meanUserScore: float | None = None
+    meanCommunityScore: float | None = None
+    meanDelta: float | None = None
+    overRated: list[ProfileScoreDeltaRow] = Field(default_factory=list)
+    underRated: list[ProfileScoreDeltaRow] = Field(default_factory=list)
+    buckets: list[ProfileScoreBucket] = Field(default_factory=list)
+
+
+class ProfileTasteAnalysisRow(BaseModel):
+    label: str
+    count: int
+    completedCount: int = 0
+    meanScore: float | None = None
+    meanCommunityScore: float | None = None
+    meanDelta: float | None = None
+    roleSummary: str | None = None
+    representativeAnime: list[AnimeSearchResult] = Field(default_factory=list)
+
+
 class ProfileAnimeEntry(AnimeSearchResult):
     listStatus: str
     score: float | None = None
@@ -273,6 +315,7 @@ class ProfileAnimeEntry(AnimeSearchResult):
     genres: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     studios: list[str] = Field(default_factory=list)
+    staff: list[ProfileStaffCredit] = Field(default_factory=list)
     updatedAt: int | None = None
 
 
@@ -286,6 +329,11 @@ class AnimeProfileResponse(BaseModel):
     topGenres: list[ProfileTasteRow] = Field(default_factory=list)
     topTags: list[ProfileTasteRow] = Field(default_factory=list)
     topStudios: list[ProfileTasteRow] = Field(default_factory=list)
+    scoreComparison: ProfileScoreComparison = Field(default_factory=ProfileScoreComparison)
+    genreTaste: list[ProfileTasteAnalysisRow] = Field(default_factory=list)
+    tagTaste: list[ProfileTasteAnalysisRow] = Field(default_factory=list)
+    studioTaste: list[ProfileTasteAnalysisRow] = Field(default_factory=list)
+    staffAffinity: list[ProfileTasteAnalysisRow] = Field(default_factory=list)
     highestRated: list[ProfileAnimeEntry] = Field(default_factory=list)
     lowestRatedCompleted: list[ProfileAnimeEntry] = Field(default_factory=list)
     longestWatched: list[ProfileAnimeEntry] = Field(default_factory=list)

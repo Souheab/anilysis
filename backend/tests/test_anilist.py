@@ -653,6 +653,28 @@ async def test_fetch_user_anime_profile_normalizes_entries(httpx_mock):
                                         "genres": ["Action", "Sci-Fi"],
                                         "tags": [{"name": "Space", "rank": 92}, {"name": "Spoiler", "rank": 20}],
                                         "studios": {"edges": [{"isMain": True, "node": {"id": 9, "name": "Bones"}}]},
+                                        "staff": {
+                                            "edges": [
+                                                {
+                                                    "role": "Director",
+                                                    "node": {
+                                                        "id": 20,
+                                                        "name": {"full": "Creative Lead"},
+                                                        "image": {"large": "staff.jpg", "medium": None},
+                                                        "siteUrl": "https://anilist.co/staff/20",
+                                                    },
+                                                },
+                                                {
+                                                    "role": "Producer",
+                                                    "node": {
+                                                        "id": 21,
+                                                        "name": {"full": "Business Lead"},
+                                                        "image": {},
+                                                        "siteUrl": None,
+                                                    },
+                                                },
+                                            ]
+                                        },
                                     },
                                 },
                                 {
@@ -684,6 +706,15 @@ async def test_fetch_user_anime_profile_normalizes_entries(httpx_mock):
     assert profile["entries"][0]["titleRomaji"] == "Space Show"
     assert profile["entries"][0]["tags"] == ["Space"]
     assert profile["entries"][0]["studios"] == ["Bones"]
+    assert profile["entries"][0]["staff"] == [
+        {
+            "id": 20,
+            "name": "Creative Lead",
+            "imageUrl": "staff.jpg",
+            "siteUrl": "https://anilist.co/staff/20",
+            "roles": ["Director"],
+        }
+    ]
 
 
 @pytest.mark.asyncio

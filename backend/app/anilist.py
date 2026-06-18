@@ -317,12 +317,37 @@ query UserAnimeProfile($username: String!) {
               node { id name }
             }
           }
+          staff(perPage: 35) {
+            edges {
+              role
+              node {
+                id
+                name { full }
+                image { large medium }
+                siteUrl
+              }
+            }
+          }
         }
       }
     }
   }
 }
 """
+
+CORE_PROFILE_STAFF_ROLE_KEYWORDS = (
+    "director",
+    "original creator",
+    "original story",
+    "series composition",
+    "script",
+    "screenplay",
+    "character design",
+    "character designer",
+    "music",
+    "chief animation director",
+    "animation director",
+)
 
 
 class AniListClient:
@@ -804,6 +829,29 @@ class AniListClient:
             name = node.get("name")
             if name and (edge.get("isMain") or name not in studios):
                 studios.append(name)
+        staff_by_id: dict[int, dict[str, Any]] = {}
+        for edge in ((media.get("staff") or {}).get("edges") or []):
+            role = edge.get("role")
+            node = edge.get("node") or {}
+            staff_id = node.get("id")
+            if not isinstance(role, str) or not isinstance(staff_id, int) or not self._is_core_profile_staff_role(role):
+                continue
+            name = (node.get("name") or {}).get("full")
+            if not name:
+                continue
+            image = node.get("image") or {}
+            credit = staff_by_id.setdefault(
+                staff_id,
+                {
+                    "id": staff_id,
+                    "name": name,
+                    "imageUrl": image.get("large") or image.get("medium"),
+                    "siteUrl": node.get("siteUrl"),
+                    "roles": [],
+                },
+            )
+            if role not in credit["roles"]:
+                credit["roles"].append(role)
         return {
             **normalized,
             "listStatus": entry.get("status") or list_status or "UNKNOWN",
@@ -817,7 +865,12 @@ class AniListClient:
                 if isinstance(tag, dict) and tag.get("name") and (tag.get("rank") or 0) >= 50
             ],
             "studios": studios,
+            "staff": list(staff_by_id.values()),
         }
+
+    def _is_core_profile_staff_role(self, role: str) -> bool:
+        normalized_role = role.casefold()
+        return any(keyword in normalized_role for keyword in CORE_PROFILE_STAFF_ROLE_KEYWORDS)
 
     def _sorted_related_anime(self, anime_by_id: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
         for anime in anime_by_id.values():
