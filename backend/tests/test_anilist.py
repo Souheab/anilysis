@@ -553,6 +553,102 @@ async def test_fetch_popular_staff_can_exclude_voice_actor_occupations(httpx_moc
 
 
 @pytest.mark.asyncio
+async def test_fetch_popular_staff_matches_mangaka_occupations(httpx_mock):
+    httpx_mock.add_response(
+        url=ANILIST_ENDPOINT,
+        json={
+            "data": {
+                "Page": {
+                    "pageInfo": {"hasNextPage": False},
+                    "staff": [
+                        {
+                            "id": 1,
+                            "name": {"full": "Manga Artist", "native": None},
+                            "image": {},
+                            "siteUrl": None,
+                            "favourites": 20000,
+                            "primaryOccupations": ["Manga Artist"],
+                        },
+                        {
+                            "id": 2,
+                            "name": {"full": "Comic Creator", "native": None},
+                            "image": {},
+                            "siteUrl": None,
+                            "favourites": 18000,
+                            "primaryOccupations": ["Comic Creator"],
+                        },
+                        {
+                            "id": 3,
+                            "name": {"full": "Popular Director", "native": None},
+                            "image": {},
+                            "siteUrl": None,
+                            "favourites": 12000,
+                            "primaryOccupations": ["Director"],
+                        },
+                    ],
+                }
+            }
+        },
+    )
+
+    results = await anilist_client().fetch_popular_staff(kind="Mangaka", limit=3)
+
+    assert [staff["nameFull"] for staff in results] == ["Manga Artist", "Comic Creator"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_popular_staff_can_show_anime_production_staff(httpx_mock):
+    httpx_mock.add_response(
+        url=ANILIST_ENDPOINT,
+        json={
+            "data": {
+                "Page": {
+                    "pageInfo": {"hasNextPage": False},
+                    "staff": [
+                        {
+                            "id": 1,
+                            "name": {"full": "Popular Voice", "native": None},
+                            "image": {},
+                            "siteUrl": None,
+                            "favourites": 20000,
+                            "primaryOccupations": ["Voice Actor"],
+                        },
+                        {
+                            "id": 2,
+                            "name": {"full": "Popular Mangaka", "native": None},
+                            "image": {},
+                            "siteUrl": None,
+                            "favourites": 18000,
+                            "primaryOccupations": ["Manga Artist"],
+                        },
+                        {
+                            "id": 3,
+                            "name": {"full": "Popular Director", "native": None},
+                            "image": {},
+                            "siteUrl": None,
+                            "favourites": 12000,
+                            "primaryOccupations": ["Director"],
+                        },
+                        {
+                            "id": 4,
+                            "name": {"full": "Popular Animator", "native": None},
+                            "image": {},
+                            "siteUrl": None,
+                            "favourites": 9000,
+                            "primaryOccupations": ["Animation Director"],
+                        },
+                    ],
+                }
+            }
+        },
+    )
+
+    results = await anilist_client().fetch_popular_staff(kind="Anime Production", limit=4)
+
+    assert [staff["nameFull"] for staff in results] == ["Popular Director", "Popular Animator"]
+
+
+@pytest.mark.asyncio
 async def test_fetch_popular_staff_matches_composer_music_occupation(httpx_mock):
     httpx_mock.add_response(
         url=ANILIST_ENDPOINT,

@@ -349,6 +349,23 @@ CORE_PROFILE_STAFF_ROLE_KEYWORDS = (
     "animation director",
 )
 
+VOICE_ACTOR_OCCUPATION_KEYWORDS = ("voice actor",)
+MANGAKA_OCCUPATION_KEYWORDS = (
+    "mangaka",
+    "manga",
+    "comic artist",
+    "comic author",
+    "comic creator",
+)
+NON_VOICE_STAFF_KINDS = {"non-voice staff", "non voice staff", "non-voice actor staff", "non voice actor staff"}
+ANIME_PRODUCTION_STAFF_KINDS = {
+    "anime production",
+    "anime production staff",
+    "production staff",
+    "direct production",
+    "direct anime production",
+}
+
 
 class AniListClient:
     _rate_lock: asyncio.Lock | None = None
@@ -557,13 +574,16 @@ class AniListClient:
     ) -> list[dict[str, Any]]:
         popular_staff: list[dict[str, Any]] = []
         page = 1
-        normalized_kind = kind.casefold()
+        normalized_kind = kind.strip().casefold()
         occupation_filters = {
             "composer": ("composer", "music"),
-            "voice actor": ("voice actor",),
+            "voice actor": VOICE_ACTOR_OCCUPATION_KEYWORDS,
+            "mangaka": MANGAKA_OCCUPATION_KEYWORDS,
         }.get(normalized_kind, (normalized_kind,))
         include_all_staff = normalized_kind in {"all", "all staff", "staff"}
-        exclude_voice_actors = normalized_kind in {"non-voice staff", "non voice staff", "non-voice actor staff", "non voice actor staff"}
+        exclude_voice_actors = normalized_kind in NON_VOICE_STAFF_KINDS | ANIME_PRODUCTION_STAFF_KINDS
+        exclude_mangaka = normalized_kind in ANIME_PRODUCTION_STAFF_KINDS
+        include_unfiltered_staff = include_all_staff or exclude_voice_actors or exclude_mangaka
         while page <= max_pages and len(popular_staff) < limit:
             data = await self._graphql(
                 POPULAR_STAFF_QUERY,
@@ -576,13 +596,23 @@ class AniListClient:
                     for occupation in node.get("primaryOccupations") or []
                     if isinstance(occupation, str)
                 ]
-                if exclude_voice_actors and any("voice actor" in occupation.casefold() for occupation in occupations):
+                if exclude_voice_actors and any(
+                    occupation_filter in occupation.casefold()
+                    for occupation in occupations
+                    for occupation_filter in VOICE_ACTOR_OCCUPATION_KEYWORDS
+                ):
+                    continue
+                if exclude_mangaka and any(
+                    occupation_filter in occupation.casefold()
+                    for occupation in occupations
+                    for occupation_filter in MANGAKA_OCCUPATION_KEYWORDS
+                ):
                     continue
                 if not include_all_staff and not any(
                     occupation_filter in occupation.casefold()
                     for occupation in occupations
                     for occupation_filter in occupation_filters
-                ) and not exclude_voice_actors:
+                ) and not include_unfiltered_staff:
                     continue
                 if not node.get("id"):
                     continue

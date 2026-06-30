@@ -113,6 +113,22 @@ const POPULAR_STAFF_KINDS = [
     detailEmpty: 'No anime credits found from AniList staff roles.',
   },
   {
+    value: 'Anime Production',
+    label: 'Anime Production',
+    pluralLabel: 'Anime Production Staff',
+    role: '',
+    description: 'Top AniList staff who work directly on anime production, excluding voice actors and manga creators.',
+    detailEmpty: 'No anime production credits found from AniList staff roles.',
+  },
+  {
+    value: 'Mangaka',
+    label: 'Mangaka',
+    pluralLabel: 'Mangaka',
+    role: '',
+    description: 'Top AniList staff filtered to manga creator occupations.',
+    detailEmpty: 'No anime credits found from AniList staff roles.',
+  },
+  {
     value: 'Director',
     label: 'Director',
     pluralLabel: 'Directors',
