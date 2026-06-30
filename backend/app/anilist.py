@@ -563,6 +563,7 @@ class AniListClient:
             "voice actor": ("voice actor",),
         }.get(normalized_kind, (normalized_kind,))
         include_all_staff = normalized_kind in {"all", "all staff", "staff"}
+        exclude_voice_actors = normalized_kind in {"non-voice staff", "non voice staff", "non-voice actor staff", "non voice actor staff"}
         while page <= max_pages and len(popular_staff) < limit:
             data = await self._graphql(
                 POPULAR_STAFF_QUERY,
@@ -575,11 +576,13 @@ class AniListClient:
                     for occupation in node.get("primaryOccupations") or []
                     if isinstance(occupation, str)
                 ]
+                if exclude_voice_actors and any("voice actor" in occupation.casefold() for occupation in occupations):
+                    continue
                 if not include_all_staff and not any(
                     occupation_filter in occupation.casefold()
                     for occupation in occupations
                     for occupation_filter in occupation_filters
-                ):
+                ) and not exclude_voice_actors:
                     continue
                 if not node.get("id"):
                     continue

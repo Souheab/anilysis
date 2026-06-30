@@ -509,6 +509,50 @@ async def test_fetch_popular_staff_can_include_all_occupations(httpx_mock):
 
 
 @pytest.mark.asyncio
+async def test_fetch_popular_staff_can_exclude_voice_actor_occupations(httpx_mock):
+    httpx_mock.add_response(
+        url=ANILIST_ENDPOINT,
+        json={
+            "data": {
+                "Page": {
+                    "pageInfo": {"hasNextPage": False},
+                    "staff": [
+                        {
+                            "id": 1,
+                            "name": {"full": "Popular Voice", "native": None},
+                            "image": {},
+                            "siteUrl": None,
+                            "favourites": 20000,
+                            "primaryOccupations": ["Voice Actor"],
+                        },
+                        {
+                            "id": 2,
+                            "name": {"full": "Popular Director", "native": None},
+                            "image": {},
+                            "siteUrl": None,
+                            "favourites": 12000,
+                            "primaryOccupations": ["Director"],
+                        },
+                        {
+                            "id": 3,
+                            "name": {"full": "Writer Actor", "native": None},
+                            "image": {},
+                            "siteUrl": None,
+                            "favourites": 9000,
+                            "primaryOccupations": ["Script", "Actor"],
+                        },
+                    ],
+                }
+            }
+        },
+    )
+
+    results = await anilist_client().fetch_popular_staff(kind="Non-Voice Staff", limit=3)
+
+    assert [staff["nameFull"] for staff in results] == ["Popular Director", "Writer Actor"]
+
+
+@pytest.mark.asyncio
 async def test_fetch_popular_staff_matches_composer_music_occupation(httpx_mock):
     httpx_mock.add_response(
         url=ANILIST_ENDPOINT,

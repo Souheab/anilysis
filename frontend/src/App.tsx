@@ -105,6 +105,14 @@ const POPULAR_STAFF_KINDS = [
     detailEmpty: 'No anime credits found from AniList staff roles.',
   },
   {
+    value: 'Non-Voice Staff',
+    label: 'Non-Voice Staff',
+    pluralLabel: 'Non-Voice Staff',
+    role: '',
+    description: 'Top AniList staff sorted by favorites, excluding voice actor occupations.',
+    detailEmpty: 'No anime credits found from AniList staff roles.',
+  },
+  {
     value: 'Director',
     label: 'Director',
     pluralLabel: 'Directors',
