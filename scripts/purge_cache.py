@@ -13,10 +13,28 @@ sys.path.insert(0, str(BACKEND_DIR))
 from sqlmodel import Session, delete, func, select  # noqa: E402
 
 from app.database import DATABASE_URL, engine, init_db  # noqa: E402
-from app.models import Anime, AnimeStaffRole, AnimeStudio, Staff, Studio  # noqa: E402
+from app.models import (  # noqa: E402
+    ApiCacheEntry,
+    Anime,
+    AnimeStaffRole,
+    AnimeStudio,
+    AnimeVoiceActorRole,
+    Staff,
+    Studio,
+    VoiceActor,
+)
 
 
-TABLES = (AnimeStaffRole, AnimeStudio, Anime, Staff, Studio)
+TABLES = (
+    AnimeStaffRole,
+    AnimeStudio,
+    AnimeVoiceActorRole,
+    Anime,
+    Staff,
+    Studio,
+    VoiceActor,
+    ApiCacheEntry,
+)
 
 
 def table_count(session: Session, table: type) -> int:

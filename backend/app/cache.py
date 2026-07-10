@@ -101,7 +101,7 @@ class AnimeCacheService:
         except AniListError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         for item in results:
-            self._upsert_anime(session, item)
+            self._upsert_anime(session, item, partial=True)
         session.commit()
         return [AnimeSearchResult(**item) for item in results]
 
@@ -378,23 +378,38 @@ class AnimeCacheService:
             and now - anime.voice_cast_fetched_at < CACHE_TTL
         )
 
-    def _upsert_anime(self, session: Session, item: dict) -> Anime:
+    def _upsert_anime(self, session: Session, item: dict, *, partial: bool = False) -> Anime:
         existing = session.get(Anime, item["id"])
         anime = existing or Anime(id=item["id"], title_romaji=item["titleRomaji"])
-        anime.title_romaji = item["titleRomaji"]
-        anime.title_english = item.get("titleEnglish")
-        anime.title_native = item.get("titleNative")
-        anime.cover_image_url = item.get("coverImageUrl")
-        anime.banner_image_url = item.get("bannerImageUrl")
-        anime.year = item.get("year")
-        anime.format = item.get("format")
-        anime.episodes = item.get("episodes")
-        anime.status = item.get("status")
-        anime.description = item.get("description")
-        anime.site_url = item.get("siteUrl")
-        anime.average_score = item.get("averageScore")
-        anime.popularity = item.get("popularity")
-        anime.favourites = item.get("favourites")
+
+        fields = {
+            "title_romaji": "titleRomaji",
+            "title_english": "titleEnglish",
+            "title_native": "titleNative",
+            "cover_image_url": "coverImageUrl",
+            "year": "year",
+            "format": "format",
+        }
+        if not partial:
+            fields.update(
+                {
+                    "banner_image_url": "bannerImageUrl",
+                    "episodes": "episodes",
+                    "status": "status",
+                    "description": "description",
+                    "site_url": "siteUrl",
+                    "average_score": "averageScore",
+                    "popularity": "popularity",
+                    "favourites": "favourites",
+                }
+            )
+
+        for model_field, payload_field in fields.items():
+            value = item.get(payload_field)
+            # Search payloads are intentionally sparse. A null or absent search
+            # field must never erase richer metadata fetched for the detail cache.
+            if not partial or value is not None:
+                setattr(anime, model_field, value)
         anime.updated_at = utc_now()
         session.add(anime)
         return anime

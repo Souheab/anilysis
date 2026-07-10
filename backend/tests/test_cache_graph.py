@@ -185,6 +185,28 @@ async def test_search_uses_sqlite_response_cache(session: Session):
 
 
 @pytest.mark.asyncio
+async def test_cached_search_does_not_erase_full_anime_metadata(session: Session):
+    client = FakeAniListClient()
+    service = AnimeCacheService(client)
+
+    full = await service.ensure_anime_loaded(session, 10, force=True)
+    fetched_at = full.staff_fetched_at
+
+    await service.search_anime(session, "Search")
+    await service.search_anime(session, "search")
+
+    cached = session.get(Anime, 10)
+    assert cached is not None
+    assert cached.average_score == 80
+    assert cached.popularity == 1000
+    assert cached.favourites == 100
+    assert cached.episodes == 12
+    assert cached.status == "FINISHED"
+    assert cached.staff_fetched_at == fetched_at
+    assert client.search_count == 1
+
+
+@pytest.mark.asyncio
 async def test_stale_search_cache_is_refreshed(session: Session):
     client = FakeAniListClient()
     service = AnimeCacheService(client)
