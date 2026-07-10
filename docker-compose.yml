@@ -5,6 +5,7 @@ services:
       - "8080:8080"
     environment:
       VERBOSE_LOGS: ${VERBOSE_LOGS:-0}
+      DATABASE_URL: sqlite:////app/backend/data/anime_cache.db
     volumes:
       - animeanalysis-cache:/app/backend/data
     restart: unless-stopped

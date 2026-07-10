@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable
 
 from fastapi import HTTPException
@@ -41,6 +41,49 @@ STAFF_ANIME_CACHE_TTL = timedelta(hours=12)
 ENTITY_CACHE_TTL = timedelta(hours=12)
 PROFILE_CACHE_TTL = timedelta(minutes=30)
 PROFILE_CACHE_VERSION = "v2"
+CACHE_RETENTION = timedelta(days=30)
+MAX_API_CACHE_ENTRIES = 5_000
+MAX_ANIME_CACHE_ENTRIES = 2_000
+
+
+def prune_database_cache(session: Session, now: datetime | None = None) -> None:
+    """Remove expired responses and graph records that have aged out."""
+    current_time = now or utc_now()
+    session.exec(delete(ApiCacheEntry).where(ApiCacheEntry.expires_at <= current_time))
+    excess_api_keys = list(
+        session.exec(
+            select(ApiCacheEntry.key)
+            .order_by(ApiCacheEntry.updated_at.desc())
+            .offset(MAX_API_CACHE_ENTRIES)
+        ).all()
+    )
+    if excess_api_keys:
+        session.exec(delete(ApiCacheEntry).where(ApiCacheEntry.key.in_(excess_api_keys)))
+
+    stale_anime_ids = list(
+        session.exec(
+            select(Anime.id).where(Anime.updated_at <= current_time - CACHE_RETENTION)
+        ).all()
+    )
+    excess_anime_ids = list(
+        session.exec(
+            select(Anime.id)
+            .order_by(Anime.updated_at.desc())
+            .offset(MAX_ANIME_CACHE_ENTRIES)
+        ).all()
+    )
+    anime_ids_to_delete = list({*stale_anime_ids, *excess_anime_ids})
+    if not anime_ids_to_delete:
+        return
+
+    session.exec(delete(AnimeStaffRole).where(AnimeStaffRole.anime_id.in_(anime_ids_to_delete)))
+    session.exec(delete(AnimeStudio).where(AnimeStudio.anime_id.in_(anime_ids_to_delete)))
+    session.exec(delete(AnimeVoiceActorRole).where(AnimeVoiceActorRole.anime_id.in_(anime_ids_to_delete)))
+    session.exec(delete(Anime).where(Anime.id.in_(anime_ids_to_delete)))
+
+    session.exec(delete(Staff).where(~Staff.id.in_(select(AnimeStaffRole.staff_id))))
+    session.exec(delete(Studio).where(~Studio.id.in_(select(AnimeStudio.studio_id))))
+    session.exec(delete(VoiceActor).where(~VoiceActor.id.in_(select(AnimeVoiceActorRole.voice_actor_id))))
 
 
 class ApiResponseCache:
@@ -71,6 +114,7 @@ class ApiResponseCache:
             entry.expires_at = now + ttl
             entry.updated_at = now
             session.add(entry)
+            prune_database_cache(session, now)
             session.commit()
             return value
 
@@ -263,6 +307,7 @@ class AnimeCacheService:
 
         anime = self._upsert_anime(session, anime_data)
         now = utc_now()
+        prune_database_cache(session, now)
         anime.staff_fetched_at = now
         anime.studios_fetched_at = now
         anime.voice_cast_fetched_at = now

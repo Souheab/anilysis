@@ -3,12 +3,13 @@ import json
 from datetime import timedelta
 
 import pytest
+import app.cache as cache_module
 from fastapi import HTTPException
 from sqlmodel import Session
 from sqlmodel import select
 
 from app.anilist import AniListError
-from app.cache import AnimeCacheService
+from app.cache import CACHE_RETENTION, AnimeCacheService, prune_database_cache
 from app.graph import GraphService
 from app.models import ApiCacheEntry, Anime, AnimeStaffRole, AnimeStudio, AnimeVoiceActorRole, Staff, Studio, VoiceActor, utc_now
 from app.scoring import connection_score_from_points, score_role
@@ -236,6 +237,61 @@ async def test_failed_search_is_not_cached(session: Session):
         await service.search_anime(session, "search")
 
     assert session.get(ApiCacheEntry, "anilist:search_anime:search") is None
+
+
+def test_prune_database_cache_removes_expired_and_stale_records(session: Session):
+    now = utc_now()
+    stale_time = now - CACHE_RETENTION - timedelta(seconds=1)
+    session.add(Anime(id=1, title_romaji="Stale", updated_at=stale_time))
+    session.add(Anime(id=2, title_romaji="Current", updated_at=now))
+    session.add(Staff(id=100, name_full="Stale staff"))
+    session.add(Staff(id=200, name_full="Current staff"))
+    session.add(Studio(id=300, name="Stale studio"))
+    session.add(Studio(id=400, name="Current studio"))
+    session.add(VoiceActor(id=500, name_full="Stale actor"))
+    session.add(VoiceActor(id=600, name_full="Current actor"))
+    session.add(AnimeStaffRole(anime_id=1, staff_id=100, role="Director", role_category="director", weight=5))
+    session.add(AnimeStaffRole(anime_id=2, staff_id=200, role="Director", role_category="director", weight=5))
+    session.add(AnimeStudio(anime_id=1, studio_id=300))
+    session.add(AnimeStudio(anime_id=2, studio_id=400))
+    session.add(AnimeVoiceActorRole(anime_id=1, voice_actor_id=500, character_name="Old"))
+    session.add(AnimeVoiceActorRole(anime_id=2, voice_actor_id=600, character_name="New"))
+    session.add(ApiCacheEntry(key="expired", value_json="[]", expires_at=now - timedelta(seconds=1)))
+    session.add(ApiCacheEntry(key="current", value_json="[]", expires_at=now + timedelta(minutes=1)))
+    session.commit()
+
+    prune_database_cache(session, now)
+    session.commit()
+
+    assert session.get(Anime, 1) is None
+    assert session.get(Anime, 2) is not None
+    assert session.get(Staff, 100) is None
+    assert session.get(Staff, 200) is not None
+    assert session.get(Studio, 300) is None
+    assert session.get(Studio, 400) is not None
+    assert session.get(VoiceActor, 500) is None
+    assert session.get(VoiceActor, 600) is not None
+    assert session.get(ApiCacheEntry, "expired") is None
+    assert session.get(ApiCacheEntry, "current") is not None
+
+
+def test_prune_database_cache_enforces_hard_caps(session: Session, monkeypatch: pytest.MonkeyPatch):
+    now = utc_now()
+    monkeypatch.setattr(cache_module, "MAX_API_CACHE_ENTRIES", 1)
+    monkeypatch.setattr(cache_module, "MAX_ANIME_CACHE_ENTRIES", 1)
+    session.add(Anime(id=1, title_romaji="Older", updated_at=now - timedelta(minutes=1)))
+    session.add(Anime(id=2, title_romaji="Newer", updated_at=now))
+    session.add(ApiCacheEntry(key="older", value_json="[]", expires_at=now + timedelta(hours=1), updated_at=now - timedelta(minutes=1)))
+    session.add(ApiCacheEntry(key="newer", value_json="[]", expires_at=now + timedelta(hours=1), updated_at=now))
+    session.commit()
+
+    prune_database_cache(session, now)
+    session.commit()
+
+    assert session.get(Anime, 1) is None
+    assert session.get(Anime, 2) is not None
+    assert session.get(ApiCacheEntry, "older") is None
+    assert session.get(ApiCacheEntry, "newer") is not None
 
 
 @pytest.mark.asyncio
