@@ -368,6 +368,14 @@ button {
   background: rgba(2, 8, 16, 0.88);
 }
 
+.tool-menu-toggle {
+  display: none;
+}
+
+.tool-menu-items {
+  display: contents;
+}
+
 .tool-rail-button {
   display: grid;
   justify-items: center;
@@ -3566,6 +3574,56 @@ button {
     padding: 8px 10px;
   }
 
+  .tool-rail {
+    display: block;
+    overflow: visible;
+    padding: 10px 18px;
+  }
+
+  .tool-menu-toggle {
+    display: flex;
+    width: 100%;
+    min-height: 48px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0 14px;
+    background: var(--surface-card);
+    color: var(--text-strong);
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .tool-menu-current {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .tool-menu-current svg {
+    flex: 0 0 auto;
+    color: #93c5fd;
+  }
+
+  .tool-menu-items {
+    display: none;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding-top: 8px;
+  }
+
+  .tool-menu-items.open {
+    display: grid;
+  }
+
+  .tool-menu-items .tool-rail-button {
+    min-width: 0;
+  }
+
   .right-panel {
     border-top: 1px solid rgba(148, 163, 184, 0.18);
     border-left: 0;
@@ -3599,11 +3657,49 @@ button {
   }
 
   .tool-rail {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
+    display: block;
     overflow: visible;
     padding: 10px;
+  }
+
+  .tool-menu-toggle {
+    display: flex;
+    width: 100%;
+    min-height: 48px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0 14px;
+    background: var(--surface-card);
+    color: var(--text-strong);
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .tool-menu-current {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .tool-menu-current svg {
+    flex: 0 0 auto;
+    color: #93c5fd;
+  }
+
+  .tool-menu-items {
+    display: none;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding-top: 8px;
+  }
+
+  .tool-menu-items.open {
+    display: grid;
   }
 
   .tool-rail-button {

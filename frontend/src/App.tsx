@@ -12,6 +12,7 @@ import {
   Focus,
   Info,
   Loader2,
+  Menu,
   Mic2,
   Network,
   PanelLeftClose,
@@ -1760,25 +1761,44 @@ function ToolRail({
   activeToolId: AnalysisToolId
   onSelect: (toolId: AnalysisToolId) => void
 }) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const activeTool = ANALYSIS_TOOLS.find((tool) => tool.id === activeToolId) ?? ANALYSIS_TOOLS[0]
+  const ActiveIcon = activeTool.icon
+
   return (
     <nav className="tool-rail" aria-label="Analysis tools">
-      {ANALYSIS_TOOLS.map((tool) => {
-        const Icon = tool.icon
-        const active = tool.id === activeToolId
-        return (
-          <button
-            key={tool.id}
-            type="button"
-            className={`tool-rail-button ${active ? 'active' : ''}`}
-            aria-pressed={active}
-            title={tool.label}
-            onClick={() => onSelect(tool.id)}
-          >
-            <Icon size={20} />
-            <span>{tool.shortLabel}</span>
-          </button>
-        )
-      })}
+      <button
+        type="button"
+        className="tool-menu-toggle"
+        aria-expanded={menuOpen}
+        aria-controls="analysis-tool-menu"
+        onClick={() => setMenuOpen((open) => !open)}
+      >
+        <span className="tool-menu-current"><ActiveIcon size={20} />{activeTool.label}</span>
+        {menuOpen ? <X size={22} /> : <Menu size={22} />}
+      </button>
+      <div id="analysis-tool-menu" className={`tool-menu-items ${menuOpen ? 'open' : ''}`}>
+        {ANALYSIS_TOOLS.map((tool) => {
+          const Icon = tool.icon
+          const active = tool.id === activeToolId
+          return (
+            <button
+              key={tool.id}
+              type="button"
+              className={`tool-rail-button ${active ? 'active' : ''}`}
+              aria-pressed={active}
+              title={tool.label}
+              onClick={() => {
+                onSelect(tool.id)
+                setMenuOpen(false)
+              }}
+            >
+              <Icon size={20} />
+              <span>{tool.shortLabel}</span>
+            </button>
+          )
+        })}
+      </div>
     </nav>
   )
 }
