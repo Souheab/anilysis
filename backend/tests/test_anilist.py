@@ -230,9 +230,10 @@ async def test_fetch_studio_entity_normalizes_related_anime(httpx_mock):
                         "pageInfo": {"hasNextPage": False},
                         "edges": [
                             {
-                                "isMain": True,
+                                "isMainStudio": True,
                                 "node": {
                                     "id": 1,
+                                    "type": "ANIME",
                                     "title": {"romaji": "Mob Psycho 100", "english": None, "native": None},
                                     "coverImage": {"large": "mob.jpg", "medium": None},
                                     "bannerImage": None,

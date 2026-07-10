@@ -251,12 +251,13 @@ query StudioEntityDetail($id: Int!, $page: Int!, $perPage: Int!) {
     siteUrl
     favourites
     isAnimationStudio
-    media(type: ANIME, sort: POPULARITY_DESC, page: $page, perPage: $perPage) {
+    media(sort: POPULARITY_DESC, page: $page, perPage: $perPage) {
       pageInfo { hasNextPage }
       edges {
-        isMain
+        isMainStudio
         node {
           id
+          type
           title { romaji english native }
           coverImage { large medium }
           bannerImage
@@ -739,6 +740,8 @@ class AniListClient:
             connection = studio.get("media") or {}
             for edge in connection.get("edges") or []:
                 media = edge.get("node") or {}
+                if media.get("type") != "ANIME":
+                    continue
                 anime_id = media.get("id")
                 if not anime_id:
                     continue
@@ -746,8 +749,9 @@ class AniListClient:
                 if normalized is None:
                     normalized = self._normalize_related_anime(media)
                     anime_by_id[anime_id] = normalized
-                normalized["isMain"] = bool(edge.get("isMain"))
-                normalized["roles"] = ["Main studio" if edge.get("isMain") else "Studio"]
+                is_main = bool(edge.get("isMainStudio"))
+                normalized["isMain"] = is_main
+                normalized["roles"] = ["Main studio" if is_main else "Studio"]
             if not (connection.get("pageInfo") or {}).get("hasNextPage"):
                 break
             page += 1
