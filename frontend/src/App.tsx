@@ -1970,22 +1970,17 @@ function GeneralSearchPanel() {
             </div>
           ) : null}
         </div>
-        <div className="entity-type-tabs general-search-tabs" role="tablist" aria-label="Search categories">
-          <button type="button" className={filter === 'all' ? 'active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>
-            <Search size={15} />
-            <span>All</span>
-          </button>
-          {ENTITY_TYPE_OPTIONS.map((option) => {
-            const Icon = option.icon
-            const active = filter === option.value
-            return (
-              <button key={option.value} type="button" className={active ? 'active' : ''} aria-pressed={active} onClick={() => setFilter(option.value)}>
-                <Icon size={15} />
-                <span>{option.label}</span>
-              </button>
-            )
-          })}
-        </div>
+        <label className="general-search-filter">
+          <SlidersHorizontal size={17} aria-hidden="true" />
+          <span>Filter</span>
+          <select value={filter} onChange={(event) => setFilter(event.target.value as GeneralSearchFilter)}>
+            <option value="all">All categories</option>
+            {ENTITY_TYPE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+          <ChevronDown size={17} aria-hidden="true" />
+        </label>
       </form>
 
       {!selectedEntity && query.trim().length < 2 ? (
