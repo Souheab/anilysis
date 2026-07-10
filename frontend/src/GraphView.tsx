@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState }
 import cytoscape, { type Core, type ElementDefinition, type LayoutOptions } from 'cytoscape'
 import cola from 'cytoscape-cola'
 import fcose from 'cytoscape-fcose'
+import { Loader2 } from 'lucide-react'
 
 import type { GraphResponse } from './api'
 
@@ -20,6 +21,7 @@ export interface GraphViewHandle {
 
 interface GraphViewProps {
   graph: GraphResponse | null
+  loading: boolean
   graphLayout: GraphLayout
   graphSpacing: number
   theme: GraphTheme
@@ -100,7 +102,7 @@ function graphLayoutOptions(name: GraphLayout, spacing: number): LayoutOptions {
 }
 
 export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function GraphView(
-  { graph, graphLayout, graphSpacing, theme, showEdgeLabels, wheelSensitivity, selectedNodeId, selectedEdgeId, onNodeSelect, onEdgeSelect },
+  { graph, loading, graphLayout, graphSpacing, theme, showEdgeLabels, wheelSensitivity, selectedNodeId, selectedEdgeId, onNodeSelect, onEdgeSelect },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -493,6 +495,14 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
   }, [selectedEdgeId])
 
   if (!graph) {
+    if (loading) {
+      return (
+        <div className="graph-empty graph-loading" role="status">
+          <Loader2 className="spin" size={20} />
+          <span>Loading...</span>
+        </div>
+      )
+    }
     return <div className="graph-empty">Add at least one anime from search to build a creative graph.</div>
   }
 

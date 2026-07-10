@@ -161,7 +161,7 @@ type ThemeMode = Exclude<ThemePreference, null>
 const VOICE_ACTOR_NODE_TYPES = { ...DEFAULT_NODE_TYPES, staff: false }
 const DEFAULT_SHOW_ONLY_MAIN_STUDIO_EDGES = true
 const DEFAULT_EDGE_FILTER_REGEX = ''
-const DEFAULT_WHEEL_SENSITIVITY = 0.16
+const DEFAULT_WHEEL_SENSITIVITY = 1
 const DEFAULT_GRAPH_SPACING = 1.35
 const DEFAULT_GRAPH_LAYOUT: GraphLayout = 'fcose'
 const SCORE_CURVE_SCALE = 140
@@ -171,7 +171,7 @@ const GRAPH_LAYOUT_OPTIONS: { label: string; value: GraphLayout }[] = [
   { label: 'Breadthfirst', value: 'breadthfirst' },
 ]
 const MIN_WHEEL_SENSITIVITY = 0.04
-const MAX_WHEEL_SENSITIVITY = 1
+const MAX_WHEEL_SENSITIVITY = 2
 const MIN_GRAPH_SPACING = 0.8
 const MAX_GRAPH_SPACING = 2.2
 const STAFF_LIMIT_OPTIONS = [
@@ -1629,6 +1629,7 @@ function App() {
             <GraphView
               ref={graphRef}
               graph={displayGraph}
+              loading={isComparing}
               graphLayout={graphLayout}
               graphSpacing={graphSpacing}
               theme={effectiveTheme}

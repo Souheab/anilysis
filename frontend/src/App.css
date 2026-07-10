@@ -1464,6 +1464,11 @@ button {
   font-size: 15px;
 }
 
+.graph-empty.graph-loading {
+  justify-content: center;
+  align-content: center;
+}
+
 .popular-staff-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
