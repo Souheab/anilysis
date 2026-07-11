@@ -316,22 +316,15 @@ function isThemeMode(value: unknown): value is ThemeMode {
   return value === 'light' || value === 'dark'
 }
 
-function currentSystemTheme(): ThemeMode {
-  if (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches) {
-    return 'light'
-  }
-  return 'dark'
-}
-
 function initialThemePreference(): ThemePreference {
   if (typeof window === 'undefined') {
-    return null
+    return 'dark'
   }
   try {
     const saved = window.localStorage.getItem(THEME_STORAGE_KEY)
-    return isThemeMode(saved) ? saved : null
+    return isThemeMode(saved) ? saved : 'dark'
   } catch {
-    return null
+    return 'dark'
   }
 }
 
@@ -934,7 +927,6 @@ function App() {
   const [filtersOpen, setFiltersOpen] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [themePreference, setThemePreference] = useState<ThemePreference>(initialThemePreference)
-  const [systemTheme, setSystemTheme] = useState<ThemeMode>(currentSystemTheme)
   const [wheelSensitivity, setWheelSensitivity] = useState(initialWheelSensitivity)
   const [graphLayout, setGraphLayout] = useState<GraphLayout>(initialGraphLayout)
   const [graphSpacing, setGraphSpacing] = useState(initialGraphSpacing)
@@ -973,7 +965,7 @@ function App() {
   const effectiveActiveFilters = roleFiltersEnabled ? activeFilters : ALL_ROLE_IDS
   const effectiveVisibleNodeTypes = nodeTypeFiltersEnabled ? visibleNodeTypes : DEFAULT_NODE_TYPES
   const popularityFilters = useMemo(() => ({ staffMinFavourites, staffLimit }), [staffLimit, staffMinFavourites])
-  const effectiveTheme = themePreference ?? systemTheme
+  const effectiveTheme = themePreference ?? 'dark'
   const displayGraph = useMemo(
     () =>
       filterGraph(
@@ -1020,17 +1012,6 @@ function App() {
     setThemePreference(nextTheme)
     window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme)
   }
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return
-    }
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: light)')
-    const updateSystemTheme = () => setSystemTheme(mediaQuery.matches ? 'light' : 'dark')
-    updateSystemTheme()
-    mediaQuery.addEventListener('change', updateSystemTheme)
-    return () => mediaQuery.removeEventListener('change', updateSystemTheme)
-  }, [])
 
   useEffect(() => {
     window.localStorage.setItem(FILTER_SECTION_STORAGE_KEY, JSON.stringify(filterSections))
@@ -1484,7 +1465,7 @@ function App() {
         : 'Run analysis'
 
   return (
-    <main className="app-shell" data-theme={themePreference ?? undefined}>
+    <main className="app-shell" data-theme={effectiveTheme}>
       <header className="topbar">
         <h1>Anilysis</h1>
         {isGeneralSearchTool ? (

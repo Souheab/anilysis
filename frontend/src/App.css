@@ -28,33 +28,6 @@
   color-scheme: dark;
 }
 
-@media (prefers-color-scheme: light) {
-  .app-shell:not([data-theme]) {
-    --shell-bg:
-      radial-gradient(circle at 55% 24%, rgba(29, 155, 240, 0.16), transparent 34rem),
-      linear-gradient(135deg, #f8fafc 0%, #eef6ff 48%, #f7fafc 100%);
-    --text-strong: #0f172a;
-    --text: #1e293b;
-    --text-muted: #475569;
-    --text-soft: #64748b;
-    --surface-glass: rgba(255, 255, 255, 0.82);
-    --surface-strong: rgba(255, 255, 255, 0.98);
-    --surface-panel: rgba(255, 255, 255, 0.9);
-    --surface-rail: rgba(241, 245, 249, 0.92);
-    --surface-card: rgba(255, 255, 255, 0.82);
-    --surface-hover: rgba(29, 155, 240, 0.12);
-    --border: rgba(71, 85, 105, 0.18);
-    --border-strong: rgba(71, 85, 105, 0.26);
-    --accent-soft: rgba(29, 155, 240, 0.14);
-    --topbar-bg: rgba(255, 255, 255, 0.84);
-    --modal-backdrop: rgba(15, 23, 42, 0.18);
-    --graph-bg: #f8fbff;
-    --graph-grid: rgba(100, 116, 139, 0.12);
-    --shadow: rgba(15, 23, 42, 0.12);
-    color-scheme: light;
-  }
-}
-
 .app-shell[data-theme='light'] {
   --shell-bg:
     radial-gradient(circle at 55% 24%, rgba(29, 155, 240, 0.16), transparent 34rem),
