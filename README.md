@@ -2,6 +2,9 @@
 
 A small full-stack app for analyzing anime connections and relationships. Uses the AniList GraphQL API as a data source
 
+<img width="1919" height="1079" alt="2026-07-11_15-26" src="https://github.com/user-attachments/assets/64837613-6531-4d7b-ab31-753400995854" />
+
+
 ## Requirements
 
 - Python 3.11+
