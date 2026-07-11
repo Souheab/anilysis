@@ -1,4 +1,4 @@
-import { type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowRightLeft,
   Building2,
@@ -69,7 +69,9 @@ import {
   type SharedStaff,
   type SharedVoiceActor,
 } from './api'
-import { GraphView, type GraphLayout, type GraphViewHandle } from './GraphView'
+import type { GraphLayout, GraphViewHandle } from './GraphView'
+
+const GraphView = lazy(() => import('./GraphView').then((module) => ({ default: module.GraphView })))
 
 const ROLE_FILTERS = [
   { id: 'direction', label: 'Director', color: '#b580ff' },
@@ -1626,20 +1628,22 @@ function App() {
               onZoomOut={() => graphRef.current?.zoomOut()}
               onReset={() => graphRef.current?.reset()}
             />
-            <GraphView
-              ref={graphRef}
-              graph={displayGraph}
-              loading={isComparing}
-              graphLayout={graphLayout}
-              graphSpacing={graphSpacing}
-              theme={effectiveTheme}
-              showEdgeLabels={showEdgeLabels}
-              wheelSensitivity={wheelSensitivity}
-              selectedNodeId={selectedNodeId}
-              selectedEdgeId={selectedEdgeId}
-              onNodeSelect={selectNode}
-              onEdgeSelect={selectEdge}
-            />
+            <Suspense fallback={<div className="graph-loading"><Loader2 className="spin" /> Loading graph…</div>}>
+              <GraphView
+                ref={graphRef}
+                graph={displayGraph}
+                loading={isComparing}
+                graphLayout={graphLayout}
+                graphSpacing={graphSpacing}
+                theme={effectiveTheme}
+                showEdgeLabels={showEdgeLabels}
+                wheelSensitivity={wheelSensitivity}
+                selectedNodeId={selectedNodeId}
+                selectedEdgeId={selectedEdgeId}
+                onNodeSelect={selectNode}
+                onEdgeSelect={selectEdge}
+              />
+            </Suspense>
             <GraphLegend expanded={showGraphLegend} onToggle={() => setShowGraphLegend((current) => !current)} />
           </section>
         ) : isGeneralSearchTool ? (

@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+if [[ "$(id -u)" == 0 ]]; then
+  chown -R anilysis:anilysis /app/backend/data /var/cache/nginx /var/lib/nginx /var/log/nginx /run
+  exec setpriv --reuid=anilysis --regid=anilysis --init-groups "$0" "$@"
+fi
+
 backend_pid=""
 nginx_pid=""
 
