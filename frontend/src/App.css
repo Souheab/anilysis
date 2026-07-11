@@ -2663,8 +2663,54 @@ button {
   font-size: 13px;
 }
 
+.legend.collapsed {
+  width: 132px;
+  padding: 12px 14px;
+}
+
+.legend-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.legend-toggle {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #dbeafe;
+  cursor: pointer;
+}
+
+.legend-toggle:hover {
+  background: rgba(148, 163, 184, 0.18);
+}
+
+.legend-toggle:focus-visible {
+  outline: 2px solid #1688ff;
+  outline-offset: 2px;
+}
+
+.legend-toggle svg {
+  transition: transform 160ms ease;
+}
+
+.legend.collapsed .legend-toggle svg {
+  transform: rotate(180deg);
+}
+
+.legend-content {
+  display: grid;
+  gap: 14px;
+}
+
 .legend h3 {
-  margin: 0 0 2px;
+  margin: 0;
   font-size: 16px;
 }
 

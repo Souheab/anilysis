@@ -1640,7 +1640,7 @@ function App() {
               onNodeSelect={selectNode}
               onEdgeSelect={selectEdge}
             />
-            {showGraphLegend ? <GraphLegend /> : null}
+            <GraphLegend expanded={showGraphLegend} onToggle={() => setShowGraphLegend((current) => !current)} />
           </section>
         ) : isGeneralSearchTool ? (
           <GeneralSearchPanel />
@@ -3427,17 +3427,33 @@ function GraphToolbar({
   )
 }
 
-function GraphLegend() {
+function GraphLegend({ expanded, onToggle }: { expanded: boolean; onToggle: () => void }) {
   return (
-    <div className="legend">
-      <h3>Legend</h3>
-      <span><i className="legend-anime" /> Anime</span>
-      <span><i className="legend-staff" /> Staff</span>
-      <span><i className="legend-voice-actor" /> Voice Actor</span>
-      <span><i className="legend-studio" /> Studio</span>
-      <span><i className="legend-line primary" /> Primary Role</span>
-      <span><i className="legend-line dashed" /> Studio / Affiliation</span>
-      <span><i className="legend-line shortest" /> Shortest Path</span>
+    <div className={`legend ${expanded ? '' : 'collapsed'}`}>
+      <div className="legend-header">
+        <h3>Legend</h3>
+        <button
+          type="button"
+          className="legend-toggle"
+          title={expanded ? 'Collapse legend' : 'Open legend'}
+          aria-label={expanded ? 'Collapse legend' : 'Open legend'}
+          aria-expanded={expanded}
+          onClick={onToggle}
+        >
+          <ChevronDown size={18} />
+        </button>
+      </div>
+      {expanded ? (
+        <div className="legend-content">
+          <span><i className="legend-anime" /> Anime</span>
+          <span><i className="legend-staff" /> Staff</span>
+          <span><i className="legend-voice-actor" /> Voice Actor</span>
+          <span><i className="legend-studio" /> Studio</span>
+          <span><i className="legend-line primary" /> Primary Role</span>
+          <span><i className="legend-line dashed" /> Studio / Affiliation</span>
+          <span><i className="legend-line shortest" /> Shortest Path</span>
+        </div>
+      ) : null}
     </div>
   )
 }
