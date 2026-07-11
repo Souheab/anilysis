@@ -892,3 +892,33 @@ async def test_anilist_honors_retry_after_on_rate_limit(httpx_mock):
 
     assert results == []
     assert time.monotonic() - start >= 0.01
+
+
+@pytest.mark.asyncio
+async def test_anilist_adapts_to_server_rate_limit_headers(httpx_mock):
+    httpx_mock.add_response(
+        url=ANILIST_ENDPOINT,
+        headers={"X-RateLimit-Limit": "30", "X-RateLimit-Remaining": "12"},
+        json={"data": {"Page": {"media": []}}},
+    )
+    client = AniListClient(burst_interval=0)
+
+    await client.search_anime("quota")
+
+    assert AniListClient._rate_limit == 30
+    assert AniListClient._rate_remaining == 12
+
+
+@pytest.mark.asyncio
+async def test_anilist_default_limiter_allows_small_fast_burst(httpx_mock):
+    httpx_mock.add_response(url=ANILIST_ENDPOINT, json={"data": {"Page": {"media": []}}})
+    httpx_mock.add_response(url=ANILIST_ENDPOINT, json={"data": {"Page": {"media": []}}})
+    client = AniListClient(burst_interval=0.01)
+
+    start = time.monotonic()
+    await client.search_anime("first")
+    await client.search_anime("second")
+
+    elapsed = time.monotonic() - start
+    assert elapsed >= 0.01
+    assert elapsed < 0.5

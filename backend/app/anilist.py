@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 import time
 from typing import Any
 
@@ -397,6 +398,10 @@ class AniListClient:
     _rate_lock: asyncio.Lock | None = None
     _rate_lock_loop: asyncio.AbstractEventLoop | None = None
     _last_request_at = 0.0
+    _rate_limit = 30
+    _rate_remaining = 30
+    _rate_reset_at = 0.0
+    _rate_paused_until = 0.0
 
     def __init__(
         self,
@@ -404,13 +409,19 @@ class AniListClient:
         timeout: float = 30.0,
         transient_retry_delay: float = 0.5,
         error_retry_delay: float = 0.3,
-        min_request_interval: float = 1.0,
+        min_request_interval: float | None = None,
+        rate_limit_reserve: int = 3,
+        burst_interval: float = 0.12,
+        max_concurrency: int = 3,
     ) -> None:
         self.endpoint = endpoint
         self.timeout = timeout
         self.transient_retry_delay = transient_retry_delay
         self.error_retry_delay = error_retry_delay
         self.min_request_interval = min_request_interval
+        self.rate_limit_reserve = rate_limit_reserve
+        self.burst_interval = burst_interval
+        self._request_slots = asyncio.Semaphore(max(1, max_concurrency))
         self._client: httpx.AsyncClient | None = None
 
     async def aclose(self) -> None:
@@ -428,10 +439,15 @@ class AniListClient:
         for attempt in range(3):
             try:
                 await self._throttle()
-                response = await self._http_client().post(self.endpoint, json={"query": query, "variables": variables})
+                async with self._request_slots:
+                    response = await self._http_client().post(self.endpoint, json={"query": query, "variables": variables})
+                await self._observe_rate_limit(response)
                 if response.status_code == 429 or 500 <= response.status_code < 600:
                     last_error = AniListError(self._format_response_error(response))
-                    await asyncio.sleep(self._retry_delay(response, attempt))
+                    if response.status_code == 429:
+                        await asyncio.sleep(self._retry_delay(response, attempt))
+                    else:
+                        await asyncio.sleep(self._retry_delay(response, attempt) + random.uniform(0, 0.25))
                     continue
                 try:
                     payload = response.json()
@@ -449,16 +465,58 @@ class AniListClient:
         raise AniListError(f"AniList request failed: {last_error}") from last_error
 
     async def _throttle(self) -> None:
-        if self.min_request_interval <= 0:
+        if self.min_request_interval is not None and self.min_request_interval <= 0:
             return
         lock = self._get_rate_lock()
         async with lock:
             now = time.monotonic()
+            if self.min_request_interval is None:
+                if now >= AniListClient._rate_reset_at:
+                    AniListClient._rate_remaining = AniListClient._rate_limit
+                    AniListClient._rate_reset_at = now + 60.0
+                wait = max(0.0, AniListClient._rate_paused_until - now)
+                usable = AniListClient._rate_remaining - self.rate_limit_reserve
+                if usable <= 0:
+                    wait = max(wait, AniListClient._rate_reset_at - now)
+                elif AniListClient._rate_remaining <= max(self.rate_limit_reserve + 1, AniListClient._rate_limit // 2):
+                    wait = max(wait, (AniListClient._rate_reset_at - now) / usable)
+                else:
+                    wait = max(wait, self.burst_interval - (now - AniListClient._last_request_at))
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                    now = time.monotonic()
+                    if now >= AniListClient._rate_reset_at:
+                        AniListClient._rate_remaining = AniListClient._rate_limit
+                        AniListClient._rate_reset_at = now + 60.0
+                AniListClient._rate_remaining = max(0, AniListClient._rate_remaining - 1)
+                AniListClient._last_request_at = now
+                return
             elapsed = now - AniListClient._last_request_at
             if elapsed < self.min_request_interval:
                 await asyncio.sleep(self.min_request_interval - elapsed)
                 now = time.monotonic()
             AniListClient._last_request_at = now
+
+    async def _observe_rate_limit(self, response: httpx.Response) -> None:
+        lock = self._get_rate_lock()
+        async with lock:
+            now = time.monotonic()
+            try:
+                AniListClient._rate_limit = max(1, int(response.headers.get("X-RateLimit-Limit", AniListClient._rate_limit)))
+                AniListClient._rate_remaining = max(0, int(response.headers.get("X-RateLimit-Remaining", AniListClient._rate_remaining)))
+            except ValueError:
+                pass
+            reset = response.headers.get("X-RateLimit-Reset")
+            if reset:
+                try:
+                    AniListClient._rate_reset_at = now + max(0.0, float(reset) - time.time())
+                except ValueError:
+                    pass
+            if response.status_code == 429:
+                delay = self._retry_after_seconds(response)
+                if delay is None and AniListClient._rate_reset_at > now:
+                    delay = AniListClient._rate_reset_at - now
+                AniListClient._rate_paused_until = max(AniListClient._rate_paused_until, now + (delay if delay is not None else 60.0) + random.uniform(0, 0.25))
 
     def _get_rate_lock(self) -> asyncio.Lock:
         loop = asyncio.get_running_loop()
@@ -466,6 +524,10 @@ class AniListClient:
             AniListClient._rate_lock = asyncio.Lock()
             AniListClient._rate_lock_loop = loop
             AniListClient._last_request_at = 0.0
+            AniListClient._rate_limit = 30
+            AniListClient._rate_remaining = 30
+            AniListClient._rate_reset_at = time.monotonic() + 60.0
+            AniListClient._rate_paused_until = 0.0
         return AniListClient._rate_lock
 
     def _retry_delay(self, response: httpx.Response, attempt: int) -> float:
