@@ -349,15 +349,44 @@ export function fetchAnimeProfile(username: string, signal?: AbortSignal) {
   return request<AnimeProfileResponse>(`/api/profile/anime?${params.toString()}`, { signal })
 }
 
-export function compareAnime(
+export async function streamAnalysis(
   animeIds: number[],
   roleFilters: string[],
+  maxDepth: number,
   popularityFilters: StaffPopularityFilters = DEFAULT_STAFF_POPULARITY_FILTERS,
+  handlers: { onComparison: (value: CompareResponse) => void; onGraph: (value: GraphResponse) => void },
+  signal?: AbortSignal,
 ) {
-  return request<CompareResponse>('/api/compare', {
+  const response = await fetch(`${API_BASE_URL}/api/analysis`, {
     method: 'POST',
-    body: JSON.stringify({ animeIds, roleFilters, ...popularityFilters }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ animeIds, roleFilters, maxDepth, ...popularityFilters }),
+    signal,
   })
+  if (!response.ok) {
+    const body = await response.json().catch(() => null)
+    throw new Error(body?.detail ?? `Request failed with ${response.status}`)
+  }
+  if (!response.body) throw new Error('Analysis stream is unavailable')
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
+  let buffer = ''
+  let completed = false
+  while (true) {
+    const { value, done } = await reader.read()
+    buffer += value ?? ''
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.trim()) continue
+      const event = JSON.parse(line) as { type: string; data?: unknown; detail?: string }
+      if (event.type === 'comparison') handlers.onComparison(event.data as CompareResponse)
+      else if (event.type === 'graph') handlers.onGraph(event.data as GraphResponse)
+      else if (event.type === 'complete') completed = true
+      else if (event.type === 'error') throw new Error(event.detail ?? 'Analysis failed')
+    }
+    if (done) break
+  }
+  if (!completed) throw new Error('Analysis stream ended unexpectedly')
 }
 
 export function compareEntities(type: EntityType, leftId: number, rightId: number) {
@@ -369,18 +398,6 @@ export function compareEntities(type: EntityType, leftId: number, rightId: numbe
 
 export function fetchEntitySummary(type: EntityType, id: number, signal?: AbortSignal) {
   return request<EntitySummary>(`/api/entities/${type}/${id}`, { signal })
-}
-
-export function fetchGraph(
-  animeIds: number[],
-  roleFilters: string[],
-  maxDepth = 2,
-  popularityFilters: StaffPopularityFilters = DEFAULT_STAFF_POPULARITY_FILTERS,
-) {
-  return request<GraphResponse>('/api/graph', {
-    method: 'POST',
-    body: JSON.stringify({ animeIds, roleFilters, maxDepth, ...popularityFilters }),
-  })
 }
 
 export function fetchNodeDetail(type: string, id: number) {

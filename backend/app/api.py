@@ -1,4 +1,9 @@
+import json
+import logging
+import time
+
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from sqlmodel import Session
 
 from app.cache import AnimeCacheService, anime_to_detail
@@ -8,15 +13,12 @@ from app.schemas import (
     AnimeDetail,
     AnimeProfileResponse,
     AnimeSearchResult,
-    CompareRequest,
-    CompareResponse,
     EntityCompareRequest,
     EntityCompareResponse,
     EntitySearchResult,
     EntitySummary,
     EntityType,
     GraphRequest,
-    GraphResponse,
     NodeDetail,
     PopularStaff,
     PopularStaffAnime,
@@ -96,31 +98,35 @@ async def entity_summary(entity_type: EntityType, entity_id: int, session: Sessi
     return await cache_service.entity_summary(session, entity_type, entity_id)
 
 
-@router.post("/compare", response_model=CompareResponse)
-async def compare_anime(request: CompareRequest, session: Session = Depends(get_session)) -> CompareResponse:
-    for anime_id in request.animeIds:
-        await cache_service.ensure_anime_loaded(session, anime_id)
-    return graph_service.compare(
-        session,
-        request.animeIds,
-        request.roleFilters,
-        request.staffMinFavourites,
-        request.staffLimit,
-    )
+logger = logging.getLogger(__name__)
 
 
-@router.post("/graph", response_model=GraphResponse)
-async def graph(request: GraphRequest, session: Session = Depends(get_session)) -> GraphResponse:
-    for anime_id in request.animeIds:
-        await cache_service.ensure_anime_loaded(session, anime_id)
-    return graph_service.cytoscape_graph(
-        session,
-        request.animeIds,
-        request.roleFilters,
-        request.maxDepth,
-        request.staffMinFavourites,
-        request.staffLimit,
-    )
+@router.post("/analysis")
+async def analysis(request: GraphRequest, session: Session = Depends(get_session)) -> StreamingResponse:
+    started = time.perf_counter()
+    await cache_service.ensure_anime_loaded_many(session, request.animeIds)
+    loaded_at = time.perf_counter()
+    allowed = graph_service._allowed_staff_ids(session, request.staffMinFavourites, request.staffLimit)
+    prepared_graph = graph_service._build_graph(session, request.roleFilters, allowed, anime_ids=set(request.animeIds))
+    prepared_at = time.perf_counter()
+
+    def event_stream():
+        stage = "comparison"
+        try:
+            comparison = graph_service.compare(session, request.animeIds, request.roleFilters, request.staffMinFavourites, request.staffLimit, prepared_graph)
+            compared_at = time.perf_counter()
+            yield json.dumps({"type": "comparison", "data": comparison.model_dump(mode="json")}) + "\n"
+            stage = "graph"
+            graph = graph_service.cytoscape_graph(session, request.animeIds, request.roleFilters, request.maxDepth, request.staffMinFavourites, request.staffLimit, prepared_graph)
+            graphed_at = time.perf_counter()
+            yield json.dumps({"type": "graph", "data": graph.model_dump(mode="json")}) + "\n"
+            yield '{"type":"complete"}\n'
+            logger.info("analysis_timing load_ms=%.1f prepare_ms=%.1f compare_ms=%.1f graph_ms=%.1f total_ms=%.1f", (loaded_at-started)*1000, (prepared_at-loaded_at)*1000, (compared_at-prepared_at)*1000, (graphed_at-compared_at)*1000, (graphed_at-started)*1000)
+        except Exception as exc:
+            logger.exception("analysis stream failed")
+            yield json.dumps({"type": "error", "stage": stage, "detail": str(exc)}) + "\n"
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
 
 @router.get("/nodes/{node_type}/{node_id}", response_model=NodeDetail)

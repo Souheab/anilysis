@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import router
+from app.api import cache_service, router
 from app.database import init_db
 
 
@@ -14,6 +14,7 @@ from app.database import init_db
 async def lifespan(_: FastAPI):
     init_db()
     yield
+    await cache_service.client.aclose()
 
 
 app = FastAPI(title="Anilysis API", version="0.1.0", lifespan=lifespan)

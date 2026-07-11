@@ -143,6 +143,31 @@ query AnimeVoiceActors($id: Int!, $page: Int!, $perPage: Int!) {
 }
 """
 
+ANIME_BUNDLE_QUERY = """
+query AnimeBundle($id: Int!, $perPage: Int!) {
+  Media(id: $id, type: ANIME) {
+    id
+    title { romaji english native }
+    coverImage { large medium }
+    bannerImage
+    startDate { year }
+    format episodes status description(asHtml: false) siteUrl averageScore popularity favourites
+    staff(page: 1, perPage: $perPage, sort: RELEVANCE) {
+      pageInfo { hasNextPage }
+      edges { role node { id name { full native } image { large medium } siteUrl favourites } }
+    }
+    studios { edges { isMain node { id name siteUrl } } }
+    characters(page: 1, perPage: $perPage, sort: ROLE) {
+      pageInfo { hasNextPage }
+      edges {
+        node { id name { full native } image { large medium } }
+        voiceActors(language: JAPANESE) { id name { full native } image { large medium } siteUrl favourites }
+      }
+    }
+  }
+}
+"""
+
 
 POPULAR_STAFF_QUERY = """
 query PopularStaff($page: Int!, $perPage: Int!) {
@@ -386,14 +411,24 @@ class AniListClient:
         self.transient_retry_delay = transient_retry_delay
         self.error_retry_delay = error_retry_delay
         self.min_request_interval = min_request_interval
+        self._client: httpx.AsyncClient | None = None
+
+    async def aclose(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
+    def _http_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=self.timeout)
+        return self._client
 
     async def _graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
         last_error: Exception | None = None
         for attempt in range(3):
             try:
                 await self._throttle()
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    response = await client.post(self.endpoint, json={"query": query, "variables": variables})
+                response = await self._http_client().post(self.endpoint, json={"query": query, "variables": variables})
                 if response.status_code == 429 or 500 <= response.status_code < 600:
                     last_error = AniListError(self._format_response_error(response))
                     await asyncio.sleep(self._retry_delay(response, attempt))
@@ -487,9 +522,43 @@ class AniListClient:
             raise AniListError(f"Anime {anime_id} was not found")
         return self._normalize_anime(media)
 
-    async def fetch_staff(self, anime_id: int, per_page: int = 50, max_pages: int = 6) -> list[dict[str, Any]]:
+    async def fetch_anime_bundle(self, anime_id: int, per_page: int = 50, max_pages: int = 6) -> dict[str, Any]:
+        data = await self._graphql(ANIME_BUNDLE_QUERY, {"id": anime_id, "perPage": per_page})
+        media = data.get("Media")
+        if not media:
+            raise AniListError(f"Anime {anime_id} was not found")
+        staff = self._normalize_staff_edges((media.get("staff") or {}).get("edges") or [])
+        cast = self._normalize_cast_edges((media.get("characters") or {}).get("edges") or [])
+        studios = self._normalize_studio_edges((media.get("studios") or {}).get("edges") or [])
+        if (media.get("staff") or {}).get("pageInfo", {}).get("hasNextPage"):
+            staff.extend(await self.fetch_staff(anime_id, per_page, max_pages, start_page=2))
+        if (media.get("characters") or {}).get("pageInfo", {}).get("hasNextPage"):
+            cast.extend(await self.fetch_voice_actors(anime_id, per_page, max_pages, start_page=2))
+        return {"anime": self._normalize_anime(media), "staff": staff, "studios": studios, "voiceActors": cast}
+
+    def _normalize_staff_edges(self, edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        result = []
+        for edge in edges:
+            node = edge.get("node") or {}
+            if node.get("id") and edge.get("role"):
+                result.append({"id": node["id"], "nameFull": (node.get("name") or {}).get("full") or "Unknown staff", "nameNative": (node.get("name") or {}).get("native"), "imageUrl": (node.get("image") or {}).get("large") or (node.get("image") or {}).get("medium"), "siteUrl": node.get("siteUrl"), "favourites": node.get("favourites"), "role": edge["role"]})
+        return result
+
+    def _normalize_cast_edges(self, edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        result = []
+        for edge in edges:
+            character = edge.get("node") or {}
+            for actor in edge.get("voiceActors") or []:
+                if actor.get("id"):
+                    result.append({"id": actor["id"], "nameFull": (actor.get("name") or {}).get("full") or "Unknown voice actor", "nameNative": (actor.get("name") or {}).get("native"), "imageUrl": (actor.get("image") or {}).get("large") or (actor.get("image") or {}).get("medium"), "siteUrl": actor.get("siteUrl"), "favourites": actor.get("favourites"), "characterName": (character.get("name") or {}).get("full") or "Unknown character", "characterImageUrl": (character.get("image") or {}).get("large") or (character.get("image") or {}).get("medium")})
+        return result
+
+    def _normalize_studio_edges(self, edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [{"id": edge["node"]["id"], "name": edge["node"].get("name") or "Unknown studio", "siteUrl": edge["node"].get("siteUrl"), "favourites": None, "isMain": bool(edge.get("isMain"))} for edge in edges if (edge.get("node") or {}).get("id")]
+
+    async def fetch_staff(self, anime_id: int, per_page: int = 50, max_pages: int = 6, start_page: int = 1) -> list[dict[str, Any]]:
         staff: list[dict[str, Any]] = []
-        page = 1
+        page = start_page
         while page <= max_pages:
             data = await self._graphql(
                 ANIME_STAFF_QUERY,
@@ -533,9 +602,9 @@ class AniListClient:
                 )
         return studios
 
-    async def fetch_voice_actors(self, anime_id: int, per_page: int = 50, max_pages: int = 6) -> list[dict[str, Any]]:
+    async def fetch_voice_actors(self, anime_id: int, per_page: int = 50, max_pages: int = 6, start_page: int = 1) -> list[dict[str, Any]]:
         cast: list[dict[str, Any]] = []
-        page = 1
+        page = start_page
         while page <= max_pages:
             data = await self._graphql(
                 ANIME_VOICE_ACTORS_QUERY,

@@ -59,7 +59,7 @@ class VoiceActor(SQLModel, table=True):
 
 class AnimeStaffRole(SQLModel, table=True):
     anime_id: int = Field(foreign_key="anime.id", primary_key=True)
-    staff_id: int = Field(foreign_key="staff.id", primary_key=True)
+    staff_id: int = Field(foreign_key="staff.id", primary_key=True, index=True)
     role: str = Field(primary_key=True)
     role_category: str
     weight: float
@@ -68,7 +68,7 @@ class AnimeStaffRole(SQLModel, table=True):
 
 class AnimeStudio(SQLModel, table=True):
     anime_id: int = Field(foreign_key="anime.id", primary_key=True)
-    studio_id: int = Field(foreign_key="studio.id", primary_key=True)
+    studio_id: int = Field(foreign_key="studio.id", primary_key=True, index=True)
     is_main: bool = False
     weight: float = 3.5
     updated_at: datetime = Field(default_factory=utc_now)
@@ -76,7 +76,7 @@ class AnimeStudio(SQLModel, table=True):
 
 class AnimeVoiceActorRole(SQLModel, table=True):
     anime_id: int = Field(foreign_key="anime.id", primary_key=True)
-    voice_actor_id: int = Field(foreign_key="voiceactor.id", primary_key=True)
+    voice_actor_id: int = Field(foreign_key="voiceactor.id", primary_key=True, index=True)
     character_name: str = Field(primary_key=True)
     character_image_url: str | None = None
     role_category: str = "voice_actor"

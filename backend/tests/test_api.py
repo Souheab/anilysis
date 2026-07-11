@@ -550,23 +550,28 @@ def test_profile_anime_endpoint_maps_missing_user_to_404(client: TestClient, mon
     assert response.status_code == 404
 
 
-def test_compare_and_graph_endpoints_refresh_missing_cache(client: TestClient, monkeypatch):
+def analysis_events(response):
+    return {event["type"]: event.get("data") for line in response.text.splitlines() if line for event in [json.loads(line)]}
+
+
+def test_analysis_endpoint_refreshes_missing_cache_and_streams_results(client: TestClient, monkeypatch):
     monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeAniListClient()))
 
-    compare = client.post("/api/compare", json={"animeIds": [1, 2, 3], "roleFilters": []})
-    graph = client.post("/api/graph", json={"animeIds": [1, 2, 3], "roleFilters": [], "maxDepth": 1})
+    response = client.post("/api/analysis", json={"animeIds": [1, 2, 3], "roleFilters": [], "maxDepth": 1})
+    events = analysis_events(response)
+    compare = events["comparison"]
+    graph = events["graph"]
 
-    assert compare.status_code == 200
-    assert [anime["id"] for anime in compare.json()["anime"]] == [1, 2, 3]
-    assert compare.json()["sharedStaff"][0]["name"] == "Shared Director"
-    assert set(compare.json()["sharedStaff"][0]["rolesByAnime"]) == {"1", "2", "3"}
-    assert compare.json()["sharedVoiceActors"][0]["name"] == "Shared Voice Actor"
-    assert set(compare.json()["sharedVoiceActors"][0]["charactersByAnime"]) == {"1", "2", "3"}
-    assert compare.json()["score"] > 0
-    assert graph.status_code == 200
-    assert graph.json()["nodes"]
-    assert any(node["data"]["type"] == "voiceActor" for node in graph.json()["nodes"])
-    assert graph.json()["highlightedPath"]
+    assert response.status_code == 200
+    assert [anime["id"] for anime in compare["anime"]] == [1, 2, 3]
+    assert compare["sharedStaff"][0]["name"] == "Shared Director"
+    assert set(compare["sharedStaff"][0]["rolesByAnime"]) == {"1", "2", "3"}
+    assert compare["sharedVoiceActors"][0]["name"] == "Shared Voice Actor"
+    assert compare["score"] > 0
+    assert graph["nodes"]
+    assert any(node["data"]["type"] == "voiceActor" for node in graph["nodes"])
+    assert graph["highlightedPath"]
+    assert "complete" in events
 
 
 def test_entity_compare_endpoint_compares_anime(client: TestClient, monkeypatch):
@@ -601,39 +606,39 @@ def test_entity_compare_endpoint_validates_duplicate_ids(client: TestClient, mon
     assert response.status_code == 422
 
 
-def test_compare_and_graph_validate_anime_ids(client: TestClient, monkeypatch):
+def test_analysis_validates_anime_ids(client: TestClient, monkeypatch):
     monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeAniListClient()))
 
-    too_few = client.post("/api/compare", json={"animeIds": [], "roleFilters": []})
-    duplicate = client.post("/api/compare", json={"animeIds": [1, 1], "roleFilters": []})
-    too_many = client.post("/api/graph", json={"animeIds": [1, 2, 3, 4, 5, 6, 7], "roleFilters": [], "maxDepth": 1})
+    too_few = client.post("/api/analysis", json={"animeIds": [], "roleFilters": [], "maxDepth": 1})
+    duplicate = client.post("/api/analysis", json={"animeIds": [1, 1], "roleFilters": [], "maxDepth": 1})
+    too_many = client.post("/api/analysis", json={"animeIds": [1, 2, 3, 4, 5, 6, 7], "roleFilters": [], "maxDepth": 1})
 
     assert too_few.status_code == 422
     assert duplicate.status_code == 422
     assert too_many.status_code == 422
 
 
-def test_single_anime_compare_and_graph(client: TestClient, monkeypatch):
+def test_single_anime_analysis(client: TestClient, monkeypatch):
     monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeAniListClient()))
 
-    compare = client.post("/api/compare", json={"animeIds": [1], "roleFilters": []})
-    graph = client.post("/api/graph", json={"animeIds": [1], "roleFilters": [], "maxDepth": 1})
+    response = client.post("/api/analysis", json={"animeIds": [1], "roleFilters": [], "maxDepth": 1})
+    events = analysis_events(response)
+    compare = events["comparison"]
+    graph = events["graph"]
 
-    assert compare.status_code == 200
-    assert compare.json()["anime"][0]["id"] == 1
-    assert compare.json()["sharedStaff"] == []
-    assert compare.json()["sharedStudios"] == []
-    assert compare.json()["sharedVoiceActors"] == []
-    assert compare.json()["score"] == 0
-    assert compare.json()["shortestPath"] == []
-    assert graph.status_code == 200
-    assert "anime:1" in {node["data"]["id"] for node in graph.json()["nodes"]}
-    assert graph.json()["highlightedPath"] == []
+    assert compare["anime"][0]["id"] == 1
+    assert compare["sharedStaff"] == []
+    assert compare["sharedStudios"] == []
+    assert compare["sharedVoiceActors"] == []
+    assert compare["score"] == 0
+    assert compare["shortestPath"] == []
+    assert "anime:1" in {node["data"]["id"] for node in graph["nodes"]}
+    assert graph["highlightedPath"] == []
 
 
 def test_node_detail_endpoint(client: TestClient, monkeypatch):
     monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeAniListClient()))
-    client.post("/api/compare", json={"animeIds": [1, 2], "roleFilters": []})
+    client.post("/api/analysis", json={"animeIds": [1, 2], "roleFilters": [], "maxDepth": 2})
 
     response = client.get("/api/nodes/staff/100")
 
@@ -644,7 +649,7 @@ def test_node_detail_endpoint(client: TestClient, monkeypatch):
 
 def test_voice_actor_node_detail_endpoint(client: TestClient, monkeypatch):
     monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeAniListClient()))
-    client.post("/api/compare", json={"animeIds": [1, 2], "roleFilters": []})
+    client.post("/api/analysis", json={"animeIds": [1, 2], "roleFilters": [], "maxDepth": 2})
 
     response = client.get("/api/nodes/voiceActor/400")
 

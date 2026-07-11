@@ -28,6 +28,9 @@ def init_db() -> None:
             columns = {column["name"] for column in inspect(connection).get_columns("anime")}
             if "voice_cast_fetched_at" not in columns:
                 connection.execute(text("ALTER TABLE anime ADD COLUMN voice_cast_fetched_at DATETIME"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_animestaffrole_staff_id ON animestaffrole (staff_id)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_animestudio_studio_id ON animestudio (studio_id)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_animevoiceactorrole_voice_actor_id ON animevoiceactorrole (voice_actor_id)"))
 
 
 def get_session() -> Generator[Session, None, None]:

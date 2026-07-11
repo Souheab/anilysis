@@ -35,6 +35,7 @@ class GraphService:
         role_filters: list[str] | None,
         staff_min_favourites: int = 0,
         staff_limit: int | None = 40,
+        prepared_graph: nx.Graph | None = None,
     ) -> CompareResponse:
         anime = [self._get_anime(session, anime_id) for anime_id in anime_ids]
         if len(anime_ids) == 1:
@@ -58,7 +59,7 @@ class GraphService:
         shared_staff = self._shared_staff(session, anime_ids, role_filters, allowed_staff_ids)
         shared_studios = self._shared_studios(session, anime_ids, role_filters)
         shared_voice_actors = self._shared_voice_actors(session, anime_ids)
-        graph = self._build_graph(session, role_filters, allowed_staff_ids, anime_ids=set(anime_ids))
+        graph = prepared_graph if prepared_graph is not None else self._build_graph(session, role_filters, allowed_staff_ids, anime_ids=set(anime_ids))
         path = self._selected_shortest_path_nodes(graph, anime_ids)
         breakdown = self._score_breakdown(shared_staff, shared_studios, shared_voice_actors, len(path))
         score = connection_score_from_points(sum(breakdown.model_dump().values()))
@@ -80,9 +81,10 @@ class GraphService:
         max_depth: int,
         staff_min_favourites: int = 0,
         staff_limit: int | None = 40,
+        prepared_graph: nx.Graph | None = None,
     ) -> GraphResponse:
         allowed_staff_ids = self._allowed_staff_ids(session, staff_min_favourites, staff_limit)
-        graph = self._build_graph(session, role_filters, allowed_staff_ids, anime_ids=set(anime_ids))
+        graph = prepared_graph if prepared_graph is not None else self._build_graph(session, role_filters, allowed_staff_ids, anime_ids=set(anime_ids))
         selected_nodes = [f"anime:{anime_id}" for anime_id in anime_ids]
         existing_selected_nodes = [node_id for node_id in selected_nodes if node_id in graph]
         if not existing_selected_nodes:
@@ -223,6 +225,16 @@ class GraphService:
     ) -> nx.Graph:
         graph = nx.Graph()
         scoped_anime_ids = list(anime_ids) if anime_ids is not None else None
+        staff_role_query = select(AnimeStaffRole)
+        studio_query = select(AnimeStudio)
+        voice_actor_query = select(AnimeVoiceActorRole)
+        if scoped_anime_ids is not None:
+            staff_role_query = staff_role_query.where(AnimeStaffRole.anime_id.in_(scoped_anime_ids))
+            studio_query = studio_query.where(AnimeStudio.anime_id.in_(scoped_anime_ids))
+            voice_actor_query = voice_actor_query.where(AnimeVoiceActorRole.anime_id.in_(scoped_anime_ids))
+        staff_roles = session.exec(staff_role_query).all()
+        studio_roles = session.exec(studio_query).all()
+        voice_actor_roles = session.exec(voice_actor_query).all()
         anime_query = select(Anime)
         if scoped_anime_ids is not None:
             anime_query = anime_query.where(Anime.id.in_(scoped_anime_ids))
@@ -234,7 +246,9 @@ class GraphService:
                 imageUrl=anime.cover_image_url,
                 year=anime.year,
             )
-        for staff in session.exec(select(Staff)).all():
+        staff_ids = {rel.staff_id for rel in staff_roles}
+        staff_records = session.exec(select(Staff).where(Staff.id.in_(staff_ids))).all() if staff_ids else []
+        for staff in staff_records:
             if allowed_staff_ids is not None and staff.id not in allowed_staff_ids:
                 continue
             graph.add_node(
@@ -244,9 +258,13 @@ class GraphService:
                 imageUrl=staff.image_url,
                 favourites=staff.favourites,
             )
-        for studio in session.exec(select(Studio)).all():
+        studio_ids = {rel.studio_id for rel in studio_roles}
+        studio_records = session.exec(select(Studio).where(Studio.id.in_(studio_ids))).all() if studio_ids else []
+        for studio in studio_records:
             graph.add_node(f"studio:{studio.id}", type="studio", label=studio.name)
-        for voice_actor in session.exec(select(VoiceActor)).all():
+        voice_actor_ids = {rel.voice_actor_id for rel in voice_actor_roles}
+        voice_actor_records = session.exec(select(VoiceActor).where(VoiceActor.id.in_(voice_actor_ids))).all() if voice_actor_ids else []
+        for voice_actor in voice_actor_records:
             graph.add_node(
                 f"voice_actor:{voice_actor.id}",
                 type="voiceActor",
@@ -255,10 +273,7 @@ class GraphService:
                 favourites=voice_actor.favourites,
             )
 
-        staff_role_query = select(AnimeStaffRole)
-        if scoped_anime_ids is not None:
-            staff_role_query = staff_role_query.where(AnimeStaffRole.anime_id.in_(scoped_anime_ids))
-        for rel in session.exec(staff_role_query).all():
+        for rel in staff_roles:
             if not role_is_included(rel.role_category, rel.role, role_filters):
                 continue
             if allowed_staff_ids is not None and rel.staff_id not in allowed_staff_ids:
@@ -290,10 +305,7 @@ class GraphService:
                     distance=distance,
                 )
         normalized_filters = normalize_role_filters(role_filters)
-        studio_query = select(AnimeStudio)
-        if scoped_anime_ids is not None:
-            studio_query = studio_query.where(AnimeStudio.anime_id.in_(scoped_anime_ids))
-        for rel in session.exec(studio_query).all():
+        for rel in studio_roles:
             if normalized_filters and "studio" not in normalized_filters:
                 continue
             anime_node = f"anime:{rel.anime_id}"
@@ -312,10 +324,7 @@ class GraphService:
                 weight=rel.weight,
                 distance=max(0.3, 5.5 - rel.weight),
             )
-        voice_actor_query = select(AnimeVoiceActorRole)
-        if scoped_anime_ids is not None:
-            voice_actor_query = voice_actor_query.where(AnimeVoiceActorRole.anime_id.in_(scoped_anime_ids))
-        for rel in session.exec(voice_actor_query).all():
+        for rel in voice_actor_roles:
             anime_node = f"anime:{rel.anime_id}"
             voice_actor_node = f"voice_actor:{rel.voice_actor_id}"
             if anime_node not in graph or voice_actor_node not in graph:

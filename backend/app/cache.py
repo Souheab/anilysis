@@ -298,12 +298,49 @@ class AnimeCacheService:
 
     async def _load_anime(self, session: Session, anime_id: int) -> Anime:
         try:
-            anime_data = await self.client.fetch_anime(anime_id)
-            staff_data = await self.client.fetch_staff(anime_id)
-            studio_data = await self.client.fetch_studios(anime_id)
-            voice_actor_data = await self.client.fetch_voice_actors(anime_id)
+            bundle = await self._fetch_anime_bundle(anime_id)
+            anime_data = bundle["anime"]
+            staff_data = bundle["staff"]
+            studio_data = bundle["studios"]
+            voice_actor_data = bundle["voiceActors"]
         except AniListError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        return self._persist_anime_bundle(session, anime_id, bundle)
+
+    async def ensure_anime_loaded_many(self, session: Session, anime_ids: list[int]) -> list[Anime]:
+        missing = [anime_id for anime_id in anime_ids if not ((cached := session.get(Anime, anime_id)) and self._is_fresh(cached))]
+        locks = [self._load_locks.setdefault(anime_id, asyncio.Lock()) for anime_id in sorted(missing)]
+        for lock in locks:
+            await lock.acquire()
+        try:
+            missing = [anime_id for anime_id in missing if not ((cached := session.get(Anime, anime_id)) and self._is_fresh(cached))]
+            try:
+                bundles = await asyncio.gather(*(self._fetch_anime_bundle(anime_id) for anime_id in missing))
+            except AniListError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            for anime_id, bundle in zip(missing, bundles, strict=True):
+                self._persist_anime_bundle(session, anime_id, bundle)
+        finally:
+            for lock in reversed(locks):
+                lock.release()
+        return [self.get_cached_anime(session, anime_id) for anime_id in anime_ids]
+
+    async def _fetch_anime_bundle(self, anime_id: int) -> dict[str, Any]:
+        if hasattr(self.client, "fetch_anime_bundle"):
+            return await self.client.fetch_anime_bundle(anime_id)
+        return {
+            "anime": await self.client.fetch_anime(anime_id),
+            "staff": await self.client.fetch_staff(anime_id),
+            "studios": await self.client.fetch_studios(anime_id),
+            "voiceActors": await self.client.fetch_voice_actors(anime_id),
+        }
+
+    def _persist_anime_bundle(self, session: Session, anime_id: int, bundle: dict[str, Any]) -> Anime:
+        anime_data = bundle["anime"]
+        staff_data = bundle["staff"]
+        studio_data = bundle["studios"]
+        voice_actor_data = bundle["voiceActors"]
 
         anime = self._upsert_anime(session, anime_data)
         now = utc_now()

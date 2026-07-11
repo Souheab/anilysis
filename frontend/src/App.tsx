@@ -35,10 +35,8 @@ import {
 
 import './App.css'
 import {
-  compareAnime,
   compareEntities,
   DEFAULT_STAFF_POPULARITY_FILTERS,
-  fetchGraph,
   fetchAnimeProfile,
   fetchEntitySummary,
   fetchNodeDetail,
@@ -47,6 +45,7 @@ import {
   searchAll,
   searchAnime,
   searchEntities,
+  streamAnalysis,
   type AnimeSearchResult,
   type AnimeProfileResponse,
   type ComparisonMetricRow,
@@ -958,6 +957,7 @@ function App() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
   const [isComparing, setIsComparing] = useState(false)
+  const [isGraphLoading, setIsGraphLoading] = useState(false)
   const [isLoadingNode, setIsLoadingNode] = useState(false)
   const [analysisFailed, setAnalysisFailed] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1186,42 +1186,49 @@ function App() {
       return undefined
     }
     const animeIds = selectedAnime.map((anime) => anime.id)
+    const controller = new AbortController()
 
     let cancelled = false
     window.queueMicrotask(() => {
       if (!cancelled) {
         setIsComparing(true)
+        setIsGraphLoading(true)
         setAnalysisFailed(false)
         setError(null)
       }
     })
-    void Promise.all([
-      compareAnime(animeIds, [], popularityFilters),
-      fetchGraph(animeIds, [], 2, popularityFilters),
-    ])
-      .then(([nextComparison, nextGraph]) => {
+    void streamAnalysis(animeIds, [], 2, popularityFilters, {
+      onComparison: (nextComparison) => {
         if (cancelled) return
         setComparison(nextComparison)
-        setGraph(nextGraph)
+        setIsComparing(false)
         setNodeDetail(null)
         setSelectedNodeId(null)
         setSelectedEdgeId(null)
         setAnalysisFailed(false)
         setRecentComparisons((current) => addRecentComparison(current, selectedAnime))
-      })
-      .catch((requestError) => {
+      },
+      onGraph: (nextGraph) => {
         if (cancelled) return
+        setGraph(nextGraph)
+        setIsGraphLoading(false)
+      },
+    }, controller.signal)
+      .catch((requestError) => {
+        if (cancelled || requestError instanceof DOMException && requestError.name === 'AbortError') return
         setAnalysisFailed(true)
         setError(requestError instanceof Error ? requestError.message : 'Comparison failed')
       })
       .finally(() => {
         if (!cancelled) {
           setIsComparing(false)
+          setIsGraphLoading(false)
         }
       })
 
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [popularityFilters, selectedAnime])
 
@@ -1597,7 +1604,7 @@ function App() {
         {isRelationshipTool ? (
           <section className="graph-panel">
             <GraphToolbar
-              loading={isComparing}
+              loading={isGraphLoading}
               nodeCount={displayGraph?.nodes.length ?? 0}
               leftPanelCollapsed={leftPanelCollapsed}
               rightPanelCollapsed={effectiveRightPanelCollapsed}
@@ -1613,7 +1620,7 @@ function App() {
               <GraphView
                 ref={graphRef}
                 graph={displayGraph}
-                loading={isComparing}
+                loading={isGraphLoading}
                 graphLayout={graphLayout}
                 graphSpacing={graphSpacing}
                 theme={effectiveTheme}
