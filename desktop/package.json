@@ -1,9 +1,9 @@
 {
-  "name": "animeanalysis-desktop",
+  "name": "anilysis-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "Desktop app packaging for Anime Analysis",
-  "desktopName": "animeanalysis",
+  "description": "Desktop app packaging for Anilysis",
+  "desktopName": "anilysis",
   "main": "main.cjs",
   "author": "",
   "license": "GPL-3.0-only",
@@ -23,8 +23,8 @@
     "electron-builder": "^26.0.12"
   },
   "build": {
-    "appId": "com.animeanalysis.app",
-    "productName": "Anime Analysis",
+    "appId": "com.anilysis.app",
+    "productName": "Anilysis",
     "icon": "../frontend/public/favicon.svg",
     "directories": {
       "output": "release"

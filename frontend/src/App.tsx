@@ -88,10 +88,10 @@ const NODE_TYPE_FILTERS = [
   { id: 'studio', label: 'Studio', color: '#65c56f', icon: Building2 },
 ] as const
 
-const FILTER_SECTION_STORAGE_KEY = 'animeanalysis.filterSections.v1'
-const RECENT_COMPARISONS_STORAGE_KEY = 'animeanalysis.recentComparisons.v1'
-const SETTINGS_STORAGE_KEY = 'animeanalysis.settings.v1'
-const THEME_STORAGE_KEY = 'animeanalysis.theme.v1'
+const FILTER_SECTION_STORAGE_KEY = 'anilysis.filterSections.v1'
+const RECENT_COMPARISONS_STORAGE_KEY = 'anilysis.recentComparisons.v1'
+const SETTINGS_STORAGE_KEY = 'anilysis.settings.v1'
+const THEME_STORAGE_KEY = 'anilysis.theme.v1'
 const RECENT_COMPARISON_LIMIT = 10
 const MIN_ANALYSIS_ANIME = 1
 const MAX_COMPARE_ANIME = 6
@@ -1484,7 +1484,7 @@ function App() {
   return (
     <main className="app-shell" data-theme={themePreference ?? undefined}>
       <header className="topbar">
-        <h1>Anime Analysis</h1>
+        <h1>Anilysis</h1>
         {isGeneralSearchTool ? (
           <div className="topbar-context">
             <Search size={18} />

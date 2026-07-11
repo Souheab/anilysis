@@ -16,7 +16,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Anime Analysis API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Anilysis API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,7 +33,7 @@ app.add_middleware(
 
 app.include_router(router)
 
-static_dir = os.getenv("ANIMEANALYSIS_STATIC_DIR")
+static_dir = os.getenv("ANILYSIS_STATIC_DIR")
 if static_dir:
     static_path = Path(static_dir)
     if not static_path.is_dir():

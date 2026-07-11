@@ -1,4 +1,4 @@
-# Anime Analysis
+# Anilysis
 
 A small full-stack app for analyzing anime connections and relationships. Uses the AniList GraphQL API as a data source
 

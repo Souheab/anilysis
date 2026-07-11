@@ -1,5 +1,5 @@
 {
-  description = "Anime Analysis";
+  description = "Anilysis";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -35,7 +35,7 @@
           );
 
           frontend = pkgs.buildNpmPackage {
-            pname = "animeanalysis-frontend";
+            pname = "anilysis-frontend";
             version = "0.1.0";
             src = ./frontend;
             npmDepsHash = "sha256-XwtZ/veOrqIPcACwYMnpAaN92YWXXqWAQAer50UUYWw=";
@@ -47,23 +47,23 @@
             '';
           };
 
-          animeanalysis = pkgs.writeShellApplication {
-            name = "animeanalysis";
+          anilysis = pkgs.writeShellApplication {
+            name = "anilysis";
             runtimeInputs = [ python ];
             text = ''
               export PYTHONPATH=${./backend}
-              export ANIMEANALYSIS_STATIC_DIR=${frontend}
+              export ANILYSIS_STATIC_DIR=${frontend}
               export BACKEND_HOST="''${BACKEND_HOST:-127.0.0.1}"
               export BACKEND_PORT="''${BACKEND_PORT:-8000}"
 
-              echo "Anime Analysis: http://$BACKEND_HOST:$BACKEND_PORT"
+              echo "Anilysis: http://$BACKEND_HOST:$BACKEND_PORT"
               exec uvicorn app.main:app --host "$BACKEND_HOST" --port "$BACKEND_PORT"
             '';
           };
         in
         {
-          default = animeanalysis;
-          inherit animeanalysis frontend;
+          default = anilysis;
+          inherit anilysis frontend;
         }
       );
 

@@ -1,6 +1,6 @@
-# Anime Analysis Desktop
+# Anilysis Desktop
 
-Electron packaging for running Anime Analysis as a desktop app with the React frontend and FastAPI backend bundled together.
+Electron packaging for running Anilysis as a desktop app with the React frontend and FastAPI backend bundled together.
 
 ## Requirements
 

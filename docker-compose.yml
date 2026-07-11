@@ -1,5 +1,5 @@
 services:
-  animeanalysis:
+  anilysis:
     build: .
     ports:
       - "8080:8080"
@@ -7,8 +7,8 @@ services:
       VERBOSE_LOGS: ${VERBOSE_LOGS:-0}
       DATABASE_URL: sqlite:////app/backend/data/anime_cache.db
     volumes:
-      - animeanalysis-cache:/app/backend/data
+      - anilysis-cache:/app/backend/data
     restart: unless-stopped
 
 volumes:
-  animeanalysis-cache:
+  anilysis-cache:

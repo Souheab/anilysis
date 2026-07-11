@@ -19,8 +19,8 @@ function getResourcePath(...parts) {
 
 function getBackendExecutablePath() {
   const executableName = process.platform === 'win32'
-    ? 'animeanalysis-backend.exe'
-    : 'animeanalysis-backend'
+    ? 'anilysis-backend.exe'
+    : 'anilysis-backend'
   return getResourcePath('backend', executableName)
 }
 
@@ -203,7 +203,7 @@ function createWindow(appUrl) {
     height: 860,
     minWidth: 1024,
     minHeight: 700,
-    title: 'Anime Analysis',
+    title: 'Anilysis',
     frame: false,
     backgroundColor: '#02101f',
     webPreferences: {
@@ -254,7 +254,7 @@ async function bootstrap() {
 app.whenReady().then(() => {
   bootstrap().catch((error) => {
     console.error(error)
-    dialog.showErrorBox('Unable to start Anime Analysis', error.message)
+    dialog.showErrorBox('Unable to start Anilysis', error.message)
     app.quit()
   })
 })

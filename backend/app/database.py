@@ -8,7 +8,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 STATE_HOME = Path(os.getenv("XDG_STATE_HOME", Path.home() / ".local" / "state"))
-DEFAULT_DB_PATH = STATE_HOME / "animeanalysis" / "anime_cache.db"
+DEFAULT_DB_PATH = STATE_HOME / "anilysis" / "anime_cache.db"
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DEFAULT_DB_PATH}")
 
 if DATABASE_URL.startswith("sqlite:///"):

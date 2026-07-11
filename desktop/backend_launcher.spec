@@ -39,7 +39,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="animeanalysis-backend",
+    name="anilysis-backend",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

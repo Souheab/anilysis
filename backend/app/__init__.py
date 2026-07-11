@@ -1,1 +1,1 @@
-"""Anime Analysis backend package."""
+"""Anilysis backend package."""

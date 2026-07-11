@@ -13,11 +13,11 @@ fi
 case "$PACKAGE_TARGET" in
   dist | --dist)
     PACKAGE_SCRIPT="dist:linux"
-    OUTPUT_MESSAGE="AppImage: $DESKTOP_DIR/release/Anime Analysis-0.1.0.AppImage"
+    OUTPUT_MESSAGE="AppImage: $DESKTOP_DIR/release/Anilysis-0.1.0.AppImage"
     ;;
   linux | --linux)
     PACKAGE_SCRIPT="dist:linux"
-    OUTPUT_MESSAGE="AppImage: $DESKTOP_DIR/release/Anime Analysis-0.1.0.AppImage"
+    OUTPUT_MESSAGE="AppImage: $DESKTOP_DIR/release/Anilysis-0.1.0.AppImage"
     ;;
   win | windows | --win | --windows)
     PACKAGE_SCRIPT="dist:win"
@@ -48,7 +48,7 @@ case "$PACKAGE_TARGET" in
 esac
 
 if [[ "$PACKAGE_SCRIPT" == *":win" && "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* && "$(uname -s)" != CYGWIN* ]]; then
-  echo "Windows desktop packaging must be run on Windows so PyInstaller can create animeanalysis-backend.exe." >&2
+  echo "Windows desktop packaging must be run on Windows so PyInstaller can create anilysis-backend.exe." >&2
   exit 1
 fi
 
