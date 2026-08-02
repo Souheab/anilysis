@@ -1,1 +1,14 @@
 result
+node_modules/
+dist/
+release/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.local

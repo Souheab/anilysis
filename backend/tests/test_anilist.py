@@ -1,3 +1,4 @@
+import json
 import time
 
 import pytest
@@ -313,7 +314,7 @@ async def test_fetch_staff_entity_uses_character_media_for_voice_actor(httpx_moc
 
 
 @pytest.mark.asyncio
-async def test_fetch_voice_actors_normalizes_japanese_cast_and_pagination(httpx_mock):
+async def test_fetch_voice_actors_forwards_language_and_normalizes_paginated_cast(httpx_mock):
     httpx_mock.add_response(
         url=ANILIST_ENDPOINT,
         json={
@@ -372,7 +373,7 @@ async def test_fetch_voice_actors_normalizes_japanese_cast_and_pagination(httpx_
         },
     )
 
-    results = await anilist_client().fetch_voice_actors(1)
+    results = await anilist_client().fetch_voice_actors(1, language="ENGLISH")
 
     assert results == [
         {
@@ -396,6 +397,8 @@ async def test_fetch_voice_actors_normalizes_japanese_cast_and_pagination(httpx_
             "characterImageUrl": None,
         },
     ]
+    requests = httpx_mock.get_requests()
+    assert [json.loads(request.content)["variables"]["language"] for request in requests] == ["ENGLISH", "ENGLISH"]
 
 
 @pytest.mark.asyncio

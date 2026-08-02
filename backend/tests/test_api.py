@@ -6,7 +6,7 @@ from sqlmodel import Session
 
 from app import api
 from app.anilist import AniListError
-from app.cache import AnimeCacheService, PROFILE_CACHE_VERSION
+from app.cache import AnimeCacheService, PROFILE_CACHE_VERSION, VOICE_CAST_CACHE_VERSION
 from app.models import ApiCacheEntry, utc_now
 
 
@@ -91,7 +91,7 @@ class ApiFakeAniListClient:
     async def fetch_studios(self, anime_id: int):
         return [{"id": 300, "name": "Shared Studio", "siteUrl": None, "favourites": None, "isMain": anime_id == 1}]
 
-    async def fetch_voice_actors(self, anime_id: int):
+    async def fetch_voice_actors(self, anime_id: int, language: str = "JAPANESE"):
         return [
             {
                 "id": 400,
@@ -202,6 +202,65 @@ class ApiFakePopularStaffClient:
                 "roles": [role or "Director"],
             }
         ][:limit]
+
+
+class ApiFakeVoiceCastClient:
+    def __init__(self, fail: bool = False, no_overlap: bool = False) -> None:
+        self.calls: list[tuple[int, str]] = []
+        self.fail = fail
+        self.no_overlap = no_overlap
+
+    async def fetch_voice_actors(self, anime_id: int, language: str = "JAPANESE"):
+        self.calls.append((anime_id, language))
+        if self.fail:
+            raise AniListError("AniList cast unavailable")
+        if self.no_overlap:
+            return [
+                {
+                    "id": 700 + anime_id,
+                    "nameFull": f"Actor {anime_id}",
+                    "imageUrl": None,
+                    "siteUrl": None,
+                    "characterName": f"Character {anime_id}",
+                    "characterImageUrl": None,
+                }
+            ]
+        language_prefix = "English " if language == "ENGLISH" else ""
+        shared_alex = {
+            "id": 501,
+            "nameFull": f"{language_prefix}Alex Voice",
+            "nameNative": None,
+            "imageUrl": "alex.jpg",
+            "siteUrl": "https://anilist.co/staff/501",
+            "favourites": 100,
+            "characterName": "Zeta" if anime_id == 1 else "Rival",
+            "characterImageUrl": "zeta.jpg" if anime_id == 1 else "rival.jpg",
+        }
+        shared_zoe = {
+            "id": 500,
+            "nameFull": f"{language_prefix}Zoe Voice",
+            "nameNative": None,
+            "imageUrl": "zoe.jpg",
+            "siteUrl": None,
+            "favourites": 50,
+            "characterName": "Hero" if anime_id == 1 else "Guide",
+            "characterImageUrl": "hero.jpg" if anime_id == 1 else "guide.jpg",
+        }
+        cast = [shared_zoe, shared_alex]
+        if anime_id == 1:
+            cast.extend(
+                [
+                    {**shared_alex, "characterName": "Alpha", "characterImageUrl": "alpha.jpg"},
+                    {**shared_alex, "characterName": "Alpha", "characterImageUrl": "alpha.jpg"},
+                    {
+                        **shared_zoe,
+                        "id": 999,
+                        "nameFull": "Only Left",
+                        "characterName": "Solo",
+                    },
+                ]
+            )
+        return cast
 
 
 class ApiFakeProfileClient:
@@ -361,6 +420,85 @@ def test_general_search_endpoint_returns_mixed_results(client: TestClient, monke
     assert response.status_code == 200
     assert [item["type"] for item in response.json()] == ["anime", "staff", "studio", "voiceActor"]
     assert response.json()[0]["label"] == "Source"
+
+
+def test_voice_cast_compare_returns_sorted_shared_actors_and_characters(client: TestClient, monkeypatch):
+    fake = ApiFakeVoiceCastClient()
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(fake))
+
+    response = client.post(
+        "/api/voice-cast/compare",
+        json={"animeIds": [1, 2], "language": "JAPANESE"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["animeIds"] == [1, 2]
+    assert body["language"] == "JAPANESE"
+    assert [actor["name"] for actor in body["sharedVoiceActors"]] == ["Alex Voice", "Zoe Voice"]
+    assert body["sharedVoiceActors"][0]["siteUrl"] == "https://anilist.co/staff/501"
+    assert body["sharedVoiceActors"][0]["charactersByAnime"]["1"] == [
+        {"name": "Alpha", "imageUrl": "alpha.jpg"},
+        {"name": "Zeta", "imageUrl": "zeta.jpg"},
+    ]
+    assert body["sharedVoiceActors"][0]["charactersByAnime"]["2"] == [
+        {"name": "Rival", "imageUrl": "rival.jpg"}
+    ]
+
+
+def test_voice_cast_compare_cache_is_partitioned_by_language(client: TestClient, monkeypatch, session: Session):
+    fake = ApiFakeVoiceCastClient()
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(fake))
+    payload = {"animeIds": [1, 2], "language": "JAPANESE"}
+
+    first = client.post("/api/voice-cast/compare", json=payload)
+    second = client.post("/api/voice-cast/compare", json=payload)
+    english = client.post("/api/voice-cast/compare", json={**payload, "language": "ENGLISH"})
+
+    assert first.status_code == second.status_code == english.status_code == 200
+    assert fake.calls == [(1, "JAPANESE"), (2, "JAPANESE"), (1, "ENGLISH"), (2, "ENGLISH")]
+    assert english.json()["sharedVoiceActors"][0]["name"] == "English Alex Voice"
+    assert session.get(ApiCacheEntry, f"anilist:voice_cast:{VOICE_CAST_CACHE_VERSION}:japanese:1") is not None
+    assert session.get(ApiCacheEntry, f"anilist:voice_cast:{VOICE_CAST_CACHE_VERSION}:english:1") is not None
+
+
+def test_voice_cast_compare_accepts_all_supported_languages(client: TestClient, monkeypatch):
+    fake = ApiFakeVoiceCastClient()
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(fake))
+    languages = [
+        "JAPANESE", "ENGLISH", "KOREAN", "ITALIAN", "SPANISH",
+        "PORTUGUESE", "FRENCH", "GERMAN", "HEBREW", "HUNGARIAN",
+    ]
+
+    for language in languages:
+        response = client.post("/api/voice-cast/compare", json={"animeIds": [1, 2], "language": language})
+        assert response.status_code == 200
+        assert response.json()["language"] == language
+
+
+def test_voice_cast_compare_validates_pair_and_language(client: TestClient, monkeypatch):
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeVoiceCastClient()))
+
+    too_few = client.post("/api/voice-cast/compare", json={"animeIds": [1], "language": "JAPANESE"})
+    duplicate = client.post("/api/voice-cast/compare", json={"animeIds": [1, 1], "language": "JAPANESE"})
+    invalid_language = client.post("/api/voice-cast/compare", json={"animeIds": [1, 2], "language": "CHINESE"})
+
+    assert too_few.status_code == 422
+    assert duplicate.status_code == 422
+    assert invalid_language.status_code == 422
+
+
+def test_voice_cast_compare_handles_empty_overlap_and_anilist_errors(client: TestClient, monkeypatch):
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeVoiceCastClient(no_overlap=True)))
+    empty = client.post("/api/voice-cast/compare", json={"animeIds": [1, 2], "language": "JAPANESE"})
+
+    monkeypatch.setattr(api, "cache_service", AnimeCacheService(ApiFakeVoiceCastClient(fail=True)))
+    failed = client.post("/api/voice-cast/compare", json={"animeIds": [3, 4], "language": "JAPANESE"})
+
+    assert empty.status_code == 200
+    assert empty.json()["sharedVoiceActors"] == []
+    assert failed.status_code == 502
+    assert failed.json()["detail"] == "AniList cast unavailable"
 
 
 def test_entity_summary_endpoint_returns_staff_detail(client: TestClient, monkeypatch):

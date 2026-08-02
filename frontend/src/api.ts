@@ -65,6 +65,37 @@ export interface SharedVoiceActor {
   weight: number
 }
 
+export type VoiceCastLanguage =
+  | 'JAPANESE'
+  | 'ENGLISH'
+  | 'KOREAN'
+  | 'ITALIAN'
+  | 'SPANISH'
+  | 'PORTUGUESE'
+  | 'FRENCH'
+  | 'GERMAN'
+  | 'HEBREW'
+  | 'HUNGARIAN'
+
+export interface VoiceCharacterCredit {
+  name: string
+  imageUrl?: string | null
+}
+
+export interface SharedVoiceCastMember {
+  voiceActorId: number
+  name: string
+  imageUrl?: string | null
+  siteUrl?: string | null
+  charactersByAnime: Record<number, VoiceCharacterCredit[]>
+}
+
+export interface VoiceCastCompareResponse {
+  animeIds: number[]
+  language: VoiceCastLanguage
+  sharedVoiceActors: SharedVoiceCastMember[]
+}
+
 export interface ScoreBreakdown {
   sharedStaff: number
   sharedStudios: number
@@ -347,6 +378,14 @@ export function fetchStaffDirectedAnime(staffId: number, role = 'Director', limi
 export function fetchAnimeProfile(username: string, signal?: AbortSignal) {
   const params = new URLSearchParams({ username })
   return request<AnimeProfileResponse>(`/api/profile/anime?${params.toString()}`, { signal })
+}
+
+export function compareVoiceCast(animeIds: [number, number], language: VoiceCastLanguage, signal?: AbortSignal) {
+  return request<VoiceCastCompareResponse>('/api/voice-cast/compare', {
+    method: 'POST',
+    body: JSON.stringify({ animeIds, language }),
+    signal,
+  })
 }
 
 export async function streamAnalysis(

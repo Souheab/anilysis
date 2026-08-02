@@ -121,7 +121,7 @@ query AnimeStudios($id: Int!) {
 
 
 ANIME_VOICE_ACTORS_QUERY = """
-query AnimeVoiceActors($id: Int!, $page: Int!, $perPage: Int!) {
+query AnimeVoiceActors($id: Int!, $page: Int!, $perPage: Int!, $language: StaffLanguage!) {
   Media(id: $id, type: ANIME) {
     characters(page: $page, perPage: $perPage, sort: ROLE) {
       pageInfo { hasNextPage currentPage lastPage }
@@ -131,7 +131,7 @@ query AnimeVoiceActors($id: Int!, $page: Int!, $perPage: Int!) {
           name { full native }
           image { large medium }
         }
-        voiceActors(language: JAPANESE) {
+        voiceActors(language: $language) {
           id
           name { full native }
           image { large medium }
@@ -664,13 +664,20 @@ class AniListClient:
                 )
         return studios
 
-    async def fetch_voice_actors(self, anime_id: int, per_page: int = 50, max_pages: int = 6, start_page: int = 1) -> list[dict[str, Any]]:
+    async def fetch_voice_actors(
+        self,
+        anime_id: int,
+        per_page: int = 50,
+        max_pages: int = 6,
+        start_page: int = 1,
+        language: str = "JAPANESE",
+    ) -> list[dict[str, Any]]:
         cast: list[dict[str, Any]] = []
         page = start_page
         while page <= max_pages:
             data = await self._graphql(
                 ANIME_VOICE_ACTORS_QUERY,
-                {"id": anime_id, "page": page, "perPage": per_page},
+                {"id": anime_id, "page": page, "perPage": per_page, "language": language},
             )
             connection = data["Media"]["characters"]
             for edge in connection.get("edges") or []:

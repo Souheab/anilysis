@@ -23,6 +23,8 @@ from app.schemas import (
     PopularStaff,
     PopularStaffAnime,
     RefreshResponse,
+    VoiceCastCompareRequest,
+    VoiceCastCompareResponse,
 )
 
 
@@ -76,6 +78,14 @@ async def staff_directed_anime(
 @router.get("/profile/anime", response_model=AnimeProfileResponse)
 async def profile_anime(username: str, session: Session = Depends(get_session)) -> AnimeProfileResponse:
     return await cache_service.profile_anime(session, username)
+
+
+@router.post("/voice-cast/compare", response_model=VoiceCastCompareResponse)
+async def compare_voice_cast(
+    request: VoiceCastCompareRequest,
+    session: Session = Depends(get_session),
+) -> VoiceCastCompareResponse:
+    return await cache_service.compare_voice_cast(session, request.animeIds, request.language)
 
 
 @router.post("/anime/{anime_id}/refresh", response_model=RefreshResponse)

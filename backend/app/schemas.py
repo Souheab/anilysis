@@ -6,6 +6,18 @@ from pydantic import BaseModel, Field, field_validator
 
 NodeType = Literal["anime", "staff", "studio", "voiceActor"]
 EntityType = Literal["anime", "staff", "studio", "voiceActor"]
+VoiceCastLanguage = Literal[
+    "JAPANESE",
+    "ENGLISH",
+    "KOREAN",
+    "ITALIAN",
+    "SPANISH",
+    "PORTUGUESE",
+    "FRENCH",
+    "GERMAN",
+    "HEBREW",
+    "HUNGARIAN",
+]
 MAX_ANALYSIS_ANIME = 6
 
 
@@ -99,6 +111,37 @@ class SharedVoiceActor(BaseModel):
     charactersByAnime: dict[int, list[str]]
     roleCategories: list[str]
     weight: float
+
+
+class VoiceCharacterCredit(BaseModel):
+    name: str
+    imageUrl: str | None = None
+
+
+class SharedVoiceCastMember(BaseModel):
+    voiceActorId: int
+    name: str
+    imageUrl: str | None = None
+    siteUrl: str | None = None
+    charactersByAnime: dict[int, list[VoiceCharacterCredit]]
+
+
+class VoiceCastCompareRequest(BaseModel):
+    animeIds: list[int] = Field(min_length=2, max_length=2)
+    language: VoiceCastLanguage = "JAPANESE"
+
+    @field_validator("animeIds")
+    @classmethod
+    def anime_ids_must_be_unique(cls, value: list[int]) -> list[int]:
+        if len(value) != len(set(value)):
+            raise ValueError("animeIds must be unique")
+        return value
+
+
+class VoiceCastCompareResponse(BaseModel):
+    animeIds: list[int]
+    language: VoiceCastLanguage
+    sharedVoiceActors: list[SharedVoiceCastMember]
 
 
 class ScoreBreakdown(BaseModel):

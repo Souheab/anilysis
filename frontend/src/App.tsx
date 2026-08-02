@@ -35,6 +35,7 @@ import {
 
 import './App.css'
 import {
+  compareVoiceCast,
   compareEntities,
   DEFAULT_STAFF_POPULARITY_FILTERS,
   fetchAnimeProfile,
@@ -66,7 +67,11 @@ import {
   type RelatedAnimeSummary,
   type ScoreBreakdown,
   type SharedStaff,
+  type SharedVoiceCastMember,
   type SharedVoiceActor,
+  type VoiceCastCompareResponse,
+  type VoiceCastLanguage,
+  type VoiceCharacterCredit,
 } from './api'
 import type { GraphLayout, GraphViewHandle } from './GraphView'
 
@@ -93,6 +98,7 @@ const FILTER_SECTION_STORAGE_KEY = 'anilysis.filterSections.v1'
 const RECENT_COMPARISONS_STORAGE_KEY = 'anilysis.recentComparisons.v1'
 const SETTINGS_STORAGE_KEY = 'anilysis.settings.v1'
 const THEME_STORAGE_KEY = 'anilysis.theme.v1'
+const VOICE_CAST_LANGUAGE_STORAGE_KEY = 'anilysis.voiceCastLanguage.v1'
 const RECENT_COMPARISON_LIMIT = 10
 const MIN_ANALYSIS_ANIME = 1
 const MAX_COMPARE_ANIME = 6
@@ -193,7 +199,7 @@ type FilterTemplateId = (typeof FILTER_TEMPLATES)[number]['id']
 type FilterSectionId = 'roles' | 'nodes' | 'edges' | 'favourites' | 'graph'
 type FilterSectionState = Record<FilterSectionId, boolean>
 type ResizePanel = 'left' | 'right'
-type AnalysisToolId = 'relationships' | 'search' | 'popularStaff' | 'entityCompare' | 'profile'
+type AnalysisToolId = 'relationships' | 'voiceCast' | 'search' | 'popularStaff' | 'entityCompare' | 'profile'
 type PopularStaffKind = (typeof POPULAR_STAFF_KINDS)[number]['value']
 type AnalysisToolDefinition = {
   id: AnalysisToolId
@@ -213,6 +219,12 @@ const ANALYSIS_TOOLS: AnalysisToolDefinition[] = [
     label: 'Relationship Visualizer',
     shortLabel: 'Relations',
     icon: Network,
+  },
+  {
+    id: 'voiceCast',
+    label: 'Voice Cast Comparison',
+    shortLabel: 'Voice Cast',
+    icon: Mic2,
   },
   {
     id: 'search',
@@ -245,6 +257,19 @@ const ENTITY_TYPE_OPTIONS: { value: EntityType; label: string; icon: LucideIcon 
   { value: 'studio', label: 'Studio', icon: Building2 },
   { value: 'staff', label: 'Staff', icon: Users },
   { value: 'voiceActor', label: 'Voice Actor', icon: Mic2 },
+]
+
+const VOICE_CAST_LANGUAGE_OPTIONS: { value: VoiceCastLanguage; label: string }[] = [
+  { value: 'JAPANESE', label: 'Japanese' },
+  { value: 'ENGLISH', label: 'English' },
+  { value: 'KOREAN', label: 'Korean' },
+  { value: 'ITALIAN', label: 'Italian' },
+  { value: 'SPANISH', label: 'Spanish' },
+  { value: 'PORTUGUESE', label: 'Portuguese' },
+  { value: 'FRENCH', label: 'French' },
+  { value: 'GERMAN', label: 'German' },
+  { value: 'HEBREW', label: 'Hebrew' },
+  { value: 'HUNGARIAN', label: 'Hungarian' },
 ]
 
 const DEFAULT_LEFT_PANEL_WIDTH = 420
@@ -324,6 +349,22 @@ function initialThemePreference(): ThemePreference {
     return isThemeMode(saved) ? saved : 'dark'
   } catch {
     return 'dark'
+  }
+}
+
+function isVoiceCastLanguage(value: unknown): value is VoiceCastLanguage {
+  return VOICE_CAST_LANGUAGE_OPTIONS.some((option) => option.value === value)
+}
+
+function initialVoiceCastLanguage(): VoiceCastLanguage {
+  if (typeof window === 'undefined') {
+    return 'JAPANESE'
+  }
+  try {
+    const saved = window.localStorage.getItem(VOICE_CAST_LANGUAGE_STORAGE_KEY)
+    return isVoiceCastLanguage(saved) ? saved : 'JAPANESE'
+  } catch {
+    return 'JAPANESE'
   }
 }
 
@@ -902,6 +943,7 @@ function visibleGraphScore(
 
 function App() {
   const graphRef = useRef<GraphViewHandle | null>(null)
+  const voiceCastAbortRef = useRef<AbortController | null>(null)
   const [activeToolId, setActiveToolId] = useState<AnalysisToolId>('relationships')
   const [selectedAnime, setSelectedAnime] = useState<AnimeSearchResult[]>([])
   const [activeSlotIndex, setActiveSlotIndex] = useState(0)
@@ -946,6 +988,12 @@ function App() {
   const [entityComparison, setEntityComparison] = useState<EntityCompareResponse | null>(null)
   const [entityCompareLoading, setEntityCompareLoading] = useState(false)
   const [entityCompareError, setEntityCompareError] = useState<string | null>(null)
+  const [voiceCastAnime, setVoiceCastAnime] = useState<[AnimeSearchResult | null, AnimeSearchResult | null]>([null, null])
+  const [activeVoiceCastSlot, setActiveVoiceCastSlot] = useState<0 | 1>(0)
+  const [voiceCastLanguage, setVoiceCastLanguage] = useState<VoiceCastLanguage>(initialVoiceCastLanguage)
+  const [voiceCastComparison, setVoiceCastComparison] = useState<VoiceCastCompareResponse | null>(null)
+  const [voiceCastLoading, setVoiceCastLoading] = useState(false)
+  const [voiceCastError, setVoiceCastError] = useState<string | null>(null)
   const [profileUsername, setProfileUsername] = useState('')
   const [submittedProfileUsername, setSubmittedProfileUsername] = useState('')
   const [animeProfile, setAnimeProfile] = useState<AnimeProfileResponse | null>(null)
@@ -997,12 +1045,13 @@ function App() {
   const atSelectionLimit = selectedAnime.length >= MAX_COMPARE_ANIME
   const activeTool = ANALYSIS_TOOLS.find((tool) => tool.id === activeToolId) ?? ANALYSIS_TOOLS[0]
   const isRelationshipTool = activeTool.id === 'relationships'
+  const isVoiceCastTool = activeTool.id === 'voiceCast'
   const isGeneralSearchTool = activeTool.id === 'search'
   const isPopularStaffTool = activeTool.id === 'popularStaff'
   const isEntityCompareTool = activeTool.id === 'entityCompare'
   const isProfileTool = activeTool.id === 'profile'
   const staffDetailsCollapsed = isPopularStaffTool && !selectedPopularStaff
-  const effectiveRightPanelCollapsed = rightPanelCollapsed || staffDetailsCollapsed || isGeneralSearchTool || isEntityCompareTool || isProfileTool
+  const effectiveRightPanelCollapsed = rightPanelCollapsed || staffDetailsCollapsed || isVoiceCastTool || isGeneralSearchTool || isEntityCompareTool || isProfileTool
   const selectedEdge = useMemo(
     () => displayGraph?.edges.find((edge) => edge.data.id === selectedEdgeId) ?? null,
     [displayGraph, selectedEdgeId],
@@ -1024,6 +1073,12 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ graphLayout, graphSpacing, wheelSensitivity }))
   }, [graphLayout, graphSpacing, wheelSensitivity])
+
+  useEffect(() => {
+    window.localStorage.setItem(VOICE_CAST_LANGUAGE_STORAGE_KEY, voiceCastLanguage)
+  }, [voiceCastLanguage])
+
+  useEffect(() => () => voiceCastAbortRef.current?.abort(), [])
 
   useEffect(() => {
     if (!isPopularStaffTool) {
@@ -1242,6 +1297,78 @@ function App() {
     setSelectedEdgeId(null)
     setAnalysisFailed(false)
   }, [])
+
+  const clearVoiceCastResult = useCallback(() => {
+    voiceCastAbortRef.current?.abort()
+    voiceCastAbortRef.current = null
+    setVoiceCastComparison(null)
+    setVoiceCastLoading(false)
+    setVoiceCastError(null)
+  }, [])
+
+  const assignVoiceCastAnime = useCallback((anime: AnimeSearchResult, slotIndex: number = activeVoiceCastSlot) => {
+    const targetSlot = slotIndex === 0 ? 0 : 1
+    const otherSlot = targetSlot === 0 ? 1 : 0
+    if (voiceCastAnime[otherSlot]?.id === anime.id) {
+      setVoiceCastError('Choose two different anime.')
+      return
+    }
+    const next: [AnimeSearchResult | null, AnimeSearchResult | null] = [...voiceCastAnime]
+    next[targetSlot] = anime
+    setVoiceCastAnime(next)
+    setActiveVoiceCastSlot(otherSlot)
+    clearVoiceCastResult()
+  }, [activeVoiceCastSlot, clearVoiceCastResult, voiceCastAnime])
+
+  const clearVoiceCastSlot = (slotIndex: 0 | 1) => {
+    setVoiceCastAnime((current) => {
+      const next: [AnimeSearchResult | null, AnimeSearchResult | null] = [...current]
+      next[slotIndex] = null
+      return next
+    })
+    setActiveVoiceCastSlot(slotIndex)
+    clearVoiceCastResult()
+  }
+
+  const swapVoiceCastAnime = () => {
+    setVoiceCastAnime((current) => [current[1], current[0]])
+    setActiveVoiceCastSlot((current) => current === 0 ? 1 : 0)
+    clearVoiceCastResult()
+  }
+
+  const changeVoiceCastLanguage = (language: VoiceCastLanguage) => {
+    setVoiceCastLanguage(language)
+    clearVoiceCastResult()
+  }
+
+  const runVoiceCastComparison = () => {
+    const left = voiceCastAnime[0]
+    const right = voiceCastAnime[1]
+    if (!left || !right) {
+      setVoiceCastError('Choose two anime before comparing their casts.')
+      return
+    }
+    voiceCastAbortRef.current?.abort()
+    const controller = new AbortController()
+    voiceCastAbortRef.current = controller
+    setVoiceCastLoading(true)
+    setVoiceCastError(null)
+    setVoiceCastComparison(null)
+    void compareVoiceCast([left.id, right.id], voiceCastLanguage, controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted) setVoiceCastComparison(result)
+      })
+      .catch((requestError) => {
+        if (controller.signal.aborted) return
+        setVoiceCastError(requestError instanceof Error ? requestError.message : 'Voice cast comparison failed')
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setVoiceCastLoading(false)
+          voiceCastAbortRef.current = null
+        }
+      })
+  }
 
   const assignEntity = useCallback((entity: EntitySearchResult, slotIndex = activeEntitySlot) => {
     setEntityCompareError(null)
@@ -1485,6 +1612,11 @@ function App() {
             <ArrowRightLeft size={18} />
             <span>Compare {entityTypeLabel(entityCompareType).toLowerCase()} metrics</span>
           </div>
+        ) : isVoiceCastTool ? (
+          <CommandSearch
+            activeSlotIndex={activeVoiceCastSlot}
+            onSelect={assignVoiceCastAnime}
+          />
         ) : isProfileTool ? (
           <ProfileSearchBar
             username={profileUsername}
@@ -1515,7 +1647,7 @@ function App() {
       </header>
 
       <div
-        className={`workspace ${isGeneralSearchTool ? 'general-search-workspace' : ''} ${isPopularStaffTool ? 'popular-staff-workspace' : ''} ${isEntityCompareTool ? 'entity-compare-workspace' : ''} ${isProfileTool ? 'profile-workspace' : ''} ${leftPanelCollapsed ? 'left-collapsed' : ''} ${effectiveRightPanelCollapsed ? 'right-collapsed' : ''}`}
+        className={`workspace ${isGeneralSearchTool ? 'general-search-workspace' : ''} ${isPopularStaffTool ? 'popular-staff-workspace' : ''} ${isEntityCompareTool ? 'entity-compare-workspace' : ''} ${isVoiceCastTool ? 'voice-cast-workspace' : ''} ${isProfileTool ? 'profile-workspace' : ''} ${leftPanelCollapsed ? 'left-collapsed' : ''} ${effectiveRightPanelCollapsed ? 'right-collapsed' : ''}`}
         style={
           {
             '--left-panel-width': `${leftPanelWidth}px`,
@@ -1579,6 +1711,19 @@ function App() {
               <TopSharedStaff items={comparison?.sharedStaff ?? []} onSelect={(staff) => void selectNode(`staff:${staff.staffId}`)} />
               <TopSharedVoiceActors items={comparison?.sharedVoiceActors ?? []} onSelect={(actor) => void selectNode(`voice_actor:${actor.voiceActorId}`)} />
             </>
+          ) : isVoiceCastTool ? (
+            <VoiceCastControls
+              anime={voiceCastAnime}
+              activeSlot={activeVoiceCastSlot}
+              language={voiceCastLanguage}
+              loading={voiceCastLoading}
+              error={voiceCastError}
+              onActiveSlotChange={setActiveVoiceCastSlot}
+              onClear={clearVoiceCastSlot}
+              onSwap={swapVoiceCastAnime}
+              onLanguageChange={changeVoiceCastLanguage}
+              onCompare={runVoiceCastComparison}
+            />
           ) : isEntityCompareTool ? (
             <EntityCompareControls
               type={entityCompareType}
@@ -1636,6 +1781,14 @@ function App() {
           </section>
         ) : isGeneralSearchTool ? (
           <GeneralSearchPanel />
+        ) : isVoiceCastTool ? (
+          <VoiceCastResults
+            anime={voiceCastAnime}
+            language={voiceCastLanguage}
+            comparison={voiceCastComparison}
+            loading={voiceCastLoading}
+            error={voiceCastError}
+          />
         ) : isPopularStaffTool ? (
           <PopularStaffPreview
             kind={popularStaffKind}
@@ -2481,6 +2634,207 @@ function EntityCompareControls({
         ) : null}
       </div>
     </>
+  )
+}
+
+function VoiceCastControls({
+  anime,
+  activeSlot,
+  language,
+  loading,
+  error,
+  onActiveSlotChange,
+  onClear,
+  onSwap,
+  onLanguageChange,
+  onCompare,
+}: {
+  anime: [AnimeSearchResult | null, AnimeSearchResult | null]
+  activeSlot: 0 | 1
+  language: VoiceCastLanguage
+  loading: boolean
+  error: string | null
+  onActiveSlotChange: (slot: 0 | 1) => void
+  onClear: (slot: 0 | 1) => void
+  onSwap: () => void
+  onLanguageChange: (language: VoiceCastLanguage) => void
+  onCompare: () => void
+}) {
+  const canCompare = Boolean(anime[0] && anime[1])
+  return (
+    <>
+      <PanelHeader
+        title="Compare Voice Casts"
+        action={(
+          <button
+            type="button"
+            className="icon-button-ghost"
+            title="Swap anime"
+            aria-label="Swap anime"
+            disabled={!anime[0] && !anime[1]}
+            onClick={onSwap}
+          >
+            <ArrowRightLeft size={18} />
+          </button>
+        )}
+      />
+      <div className="voice-cast-controls">
+        <div className="anime-slots voice-cast-slots">
+          {[0, 1].map((slotIndex) => (
+            <AnimeSlot
+              key={slotIndex}
+              slot={slotIndex + 1}
+              anime={anime[slotIndex]}
+              active={activeSlot === slotIndex}
+              onPick={() => onActiveSlotChange(slotIndex as 0 | 1)}
+              onClear={() => onClear(slotIndex as 0 | 1)}
+            />
+          ))}
+        </div>
+
+        <label className="voice-language-control">
+          <span>Cast language</span>
+          <select value={language} onChange={(event) => onLanguageChange(event.target.value as VoiceCastLanguage)}>
+            {VOICE_CAST_LANGUAGE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+
+        <button type="button" className="analysis-button" disabled={!canCompare || loading} onClick={onCompare}>
+          {loading ? <Loader2 className="spin" size={17} /> : <Mic2 size={17} />}
+          {loading ? 'Comparing casts...' : 'Compare voice casts'}
+        </button>
+
+        {error ? (
+          <div className="inline-error">
+            <strong>Error occurred:</strong>
+            <span>{error}</span>
+          </div>
+        ) : null}
+      </div>
+    </>
+  )
+}
+
+function VoiceCastResults({
+  anime,
+  language,
+  comparison,
+  loading,
+  error,
+}: {
+  anime: [AnimeSearchResult | null, AnimeSearchResult | null]
+  language: VoiceCastLanguage
+  comparison: VoiceCastCompareResponse | null
+  loading: boolean
+  error: string | null
+}) {
+  const leftAnime = anime[0]
+  const rightAnime = anime[1]
+  const languageLabel = VOICE_CAST_LANGUAGE_OPTIONS.find((option) => option.value === language)?.label ?? language
+  const hasSelection = Boolean(leftAnime && rightAnime)
+
+  return (
+    <section className="graph-panel voice-cast-panel">
+      <div className="entity-compare-header">
+        <span className="filter-icon voice"><Mic2 size={18} /></span>
+        <div>
+          <h2>Shared Voice Cast</h2>
+          <p>{hasSelection ? `${languageLabel} cast comparison` : 'Select two anime to find their shared voice actors.'}</p>
+        </div>
+      </div>
+
+      {!hasSelection ? (
+        <div className="entity-compare-empty">
+          <CircleDotDashed size={26} />
+          <span>Choose an anime for both sides.</span>
+        </div>
+      ) : null}
+      {hasSelection && !loading && !comparison && !error ? (
+        <div className="entity-compare-empty voice-cast-ready">
+          <Mic2 size={28} />
+          <span>Press Compare voice casts to load shared actors.</span>
+        </div>
+      ) : null}
+      {loading ? <div className="popular-staff-state"><Loader2 className="spin" size={20} /> Comparing {languageLabel.toLowerCase()} casts...</div> : null}
+      {hasSelection && error && !loading ? <div className="popular-staff-state error-text">{error}</div> : null}
+
+      {comparison && leftAnime && rightAnime && !loading ? (
+        <div className="voice-cast-results">
+          <div className="voice-cast-summary">
+            <strong>{comparison.sharedVoiceActors.length}</strong>
+            <span>{comparison.sharedVoiceActors.length === 1 ? 'shared voice actor' : 'shared voice actors'}</span>
+          </div>
+          <div className="voice-cast-column-headings">
+            <VoiceCastAnimeHeading anime={leftAnime} />
+            <span>Shared actor</span>
+            <VoiceCastAnimeHeading anime={rightAnime} />
+          </div>
+          {comparison.sharedVoiceActors.length ? (
+            <div className="voice-cast-list">
+              {comparison.sharedVoiceActors.map((actor) => (
+                <VoiceCastRow key={actor.voiceActorId} actor={actor} leftAnime={leftAnime} rightAnime={rightAnime} />
+              ))}
+            </div>
+          ) : (
+            <div className="voice-cast-empty-result">
+              <Mic2 size={28} />
+              <strong>No shared {languageLabel.toLowerCase()} voice actors found.</strong>
+              <span>Try another cast language or a different anime pair.</span>
+            </div>
+          )}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function VoiceCastAnimeHeading({ anime }: { anime: AnimeSearchResult }) {
+  return (
+    <div className="voice-cast-anime-heading">
+      <AnimeThumb anime={anime} />
+      <span>
+        <strong>{titleFor(anime)}</strong>
+        <small>{formatMeta(anime)}</small>
+      </span>
+    </div>
+  )
+}
+
+function VoiceCastRow({
+  actor,
+  leftAnime,
+  rightAnime,
+}: {
+  actor: SharedVoiceCastMember
+  leftAnime: AnimeSearchResult
+  rightAnime: AnimeSearchResult
+}) {
+  return (
+    <article className="voice-cast-row">
+      <VoiceCharacterList credits={actor.charactersByAnime[leftAnime.id] ?? []} side="left" />
+      <div className="voice-cast-actor">
+        {actor.imageUrl ? <img src={actor.imageUrl} alt="" /> : <span className="voice-cast-avatar-fallback"><Mic2 size={24} /></span>}
+        {actor.siteUrl ? (
+          <a href={actor.siteUrl} target="_blank" rel="noreferrer">{actor.name}</a>
+        ) : <strong>{actor.name}</strong>}
+      </div>
+      <VoiceCharacterList credits={actor.charactersByAnime[rightAnime.id] ?? []} side="right" />
+    </article>
+  )
+}
+
+function VoiceCharacterList({ credits, side }: { credits: VoiceCharacterCredit[]; side: 'left' | 'right' }) {
+  return (
+    <div className={`voice-character-list ${side}`}>
+      {credits.map((credit) => (
+        <div key={`${credit.name}-${credit.imageUrl ?? ''}`} className="voice-character-card">
+          {credit.imageUrl ? <img src={credit.imageUrl} alt="" /> : <span className="voice-character-fallback"><Users size={18} /></span>}
+          <strong>{credit.name}</strong>
+        </div>
+      ))}
+    </div>
   )
 }
 

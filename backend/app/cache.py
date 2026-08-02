@@ -30,6 +30,10 @@ from app.schemas import (
     ProfileUserSummary,
     RefreshResponse,
     RelatedAnimeSummary,
+    SharedVoiceCastMember,
+    VoiceCastCompareResponse,
+    VoiceCastLanguage,
+    VoiceCharacterCredit,
 )
 from app.scoring import role_is_included, score_role, studio_weight
 
@@ -41,6 +45,7 @@ STAFF_ANIME_CACHE_TTL = timedelta(hours=12)
 ENTITY_CACHE_TTL = timedelta(hours=12)
 PROFILE_CACHE_TTL = timedelta(minutes=30)
 PROFILE_CACHE_VERSION = "v2"
+VOICE_CAST_CACHE_VERSION = "v1"
 CACHE_RETENTION = timedelta(days=30)
 MAX_API_CACHE_ENTRIES = 5_000
 MAX_ANIME_CACHE_ENTRIES = 2_000
@@ -255,6 +260,81 @@ class AnimeCacheService:
                 raise HTTPException(status_code=404, detail=message) from exc
             raise HTTPException(status_code=502, detail=message) from exc
         return self._profile_response(data)
+
+    async def compare_voice_cast(
+        self,
+        session: Session,
+        anime_ids: list[int],
+        language: VoiceCastLanguage,
+    ) -> VoiceCastCompareResponse:
+        casts_by_anime: dict[int, list[dict[str, Any]]] = {}
+        try:
+            for anime_id in anime_ids:
+                casts_by_anime[anime_id] = await self.api_cache.get_or_fetch_json(
+                    session,
+                    f"anilist:voice_cast:{VOICE_CAST_CACHE_VERSION}:{language.casefold()}:{anime_id}",
+                    CACHE_TTL,
+                    lambda anime_id=anime_id: self.client.fetch_voice_actors(anime_id, language=language),
+                )
+        except AniListError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        actors_by_anime = {
+            anime_id: self._group_voice_cast(cast)
+            for anime_id, cast in casts_by_anime.items()
+        }
+        shared_actor_ids = set(actors_by_anime[anime_ids[0]]) & set(actors_by_anime[anime_ids[1]])
+        shared = []
+        for actor_id in shared_actor_ids:
+            actor = actors_by_anime[anime_ids[0]][actor_id]
+            other_actor = actors_by_anime[anime_ids[1]][actor_id]
+            shared.append(
+                SharedVoiceCastMember(
+                    voiceActorId=actor_id,
+                    name=actor["name"],
+                    imageUrl=actor.get("imageUrl") or other_actor.get("imageUrl"),
+                    siteUrl=actor.get("siteUrl") or other_actor.get("siteUrl"),
+                    charactersByAnime={
+                        anime_id: actors_by_anime[anime_id][actor_id]["characters"]
+                        for anime_id in anime_ids
+                    },
+                )
+            )
+        shared.sort(key=lambda actor: (actor.name.casefold(), actor.voiceActorId))
+        return VoiceCastCompareResponse(
+            animeIds=anime_ids,
+            language=language,
+            sharedVoiceActors=shared,
+        )
+
+    def _group_voice_cast(self, cast: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+        grouped: dict[int, dict[str, Any]] = {}
+        for item in cast:
+            actor_id = item["id"]
+            actor = grouped.setdefault(
+                actor_id,
+                {
+                    "name": item["nameFull"],
+                    "imageUrl": item.get("imageUrl"),
+                    "siteUrl": item.get("siteUrl"),
+                    "characters": [],
+                },
+            )
+            credit = VoiceCharacterCredit(
+                name=item.get("characterName") or "Unknown character",
+                imageUrl=item.get("characterImageUrl"),
+            )
+            existing_credit = next(
+                (existing for existing in actor["characters"] if existing.name.casefold() == credit.name.casefold()),
+                None,
+            )
+            if existing_credit is None:
+                actor["characters"].append(credit)
+            elif not existing_credit.imageUrl and credit.imageUrl:
+                existing_credit.imageUrl = credit.imageUrl
+        for actor in grouped.values():
+            actor["characters"].sort(key=lambda credit: (credit.name.casefold(), credit.imageUrl or ""))
+        return grouped
 
     async def compare_entities(self, session: Session, entity_type: EntityType, left_id: int, right_id: int) -> EntityCompareResponse:
         if left_id == right_id:
